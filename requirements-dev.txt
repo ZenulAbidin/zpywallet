@@ -1,6 +1,6 @@
 # distribution/release packages
 bump2version==1.0.1
-wheel==0.40.0
+wheel==0.46.2
 
 # Linting packages
 flake8==6.0.0
