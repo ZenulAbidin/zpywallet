@@ -201,16 +201,25 @@
 - `./.venv/bin/python -m tox -e docs` -> success on the current tree (`docs: OK`)
 - `ps -eo pid,etime,pcpu,pmem,args | grep '[p]ytest tests -q'` -> confirmed the long-running full-suite process stayed CPU-bound during the audit rather than hanging
 - `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current tree; release artifacts still build and pass metadata validation cleanly
+- `git status --short --branch` -> only `.codex/progress.md` was dirty at turn start, so a new baseline commit was created before further work (`ahead 15` afterward)
+- `./.venv/bin/python --version` -> success (`Python 3.11.2`)
+- `./.venv/bin/python -m pytest tests -q` -> success on the current committed tree (`127 passed, 1 warning in 588.23s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the current committed tree
+- `./.venv/bin/python -m tox -e docs` -> failed only when launched concurrently with a package build from the same worktree (`FileNotFoundError: zpywallet-0.7.0/zpywallet/utils` during parallel sdist creation); reran clean below
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current committed tree
+- `git status --short --branch` -> clean worktree after the validation commands completed (`ahead 15`)
+- `./.venv/bin/python -m tox -e docs` -> success on a clean rerun (`docs: OK`), confirming the earlier failure was validation contention rather than a source regression
 
 ## Current Iteration Summary
-- Chosen task: re-verify the current tree end to end and decide whether any additional in-scope work remains.
-- In-scope evidence: this repository's product is a distributable Python wallet library, so the highest-value remaining task after the earlier fixes was a fresh pass over tests, lint, docs, packaging, and unfinished-work markers on the actual current tree.
+- Chosen task: perform a fresh completion audit on the currently committed tree and decide whether any justified source work remains.
+- In-scope evidence: the repository itself defines a packaged Python wallet library with repo-native validation through `pytest`, `tox`, Sphinx, and release builds, so the only high-value remaining task was to verify that those flows still pass on the live tree before declaring completion.
 - Changes made:
-- re-read README, packaging metadata, tox configuration, CI workflows, requirements, and the existing progress log to confirm the intended product scope and repo-native workflow
-- reran the current high-signal validations on the live tree: full `pytest`, `tox -e flake8`, `tox -e docs`, release build, and distribution metadata checks
-- reviewed unfinished-work markers again and confirmed that the remaining hits are notes, abstract guards, or conservative fallbacks rather than broken supported flows
-- left the repository source untouched because the current tree already satisfies the repository's justified scope and validation bar
-- Remaining work: none in scope beyond the already documented out-of-scope polish and local environment limitations around unavailable Python interpreters for the full CI matrix.
+- re-read the repository evidence (`README.rst`, packaging metadata, `tox.ini`, GitHub workflows, and the existing progress log) to confirm the intended scope and native developer workflow
+- created the required one-time baseline commit because the inherited worktree was dirty only from `.codex/progress.md`
+- reran the high-signal validations on the live tree: full `pytest`, `tox -e flake8`, `tox -e docs`, and release build plus `twine check`
+- confirmed that the single docs failure in this turn was self-inflicted by running docs and package-build validations concurrently against the same worktree; the clean rerun passed
+- left repository source files unchanged because no new in-scope defect or missing supported flow was exposed by the current audit
+- Remaining work: none in scope beyond the already documented out-of-scope polish and environment limitations around unavailable extra Python interpreters for the full CI matrix.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
