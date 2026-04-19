@@ -14,28 +14,28 @@ from .ltctest.all import broadcast_transaction_ltctest, tx_hash_ltctest
 def broadcast_transaction(transaction, network, **kwargs):
     if network.COIN == "BTC":
         if not network.TESTNET:
-            asyncio.run(broadcast_transaction_btc(transaction, **kwargs))
+            return asyncio.run(broadcast_transaction_btc(transaction, **kwargs))
         else:
-            asyncio.run(broadcast_transaction_btctest(transaction, **kwargs))
+            return asyncio.run(broadcast_transaction_btctest(transaction, **kwargs))
     elif network.COIN == "LTC":
         if not network.TESTNET:
-            asyncio.run(broadcast_transaction_ltc(transaction, **kwargs))
+            return asyncio.run(broadcast_transaction_ltc(transaction, **kwargs))
         else:
-            broadcast_transaction_ltctest(transaction, **kwargs)
+            return asyncio.run(broadcast_transaction_ltctest(transaction, **kwargs))
     elif network.COIN == "DASH":
         if not network.TESTNET:
-            asyncio.run(broadcast_transaction_dash(transaction, **kwargs))
+            return asyncio.run(broadcast_transaction_dash(transaction, **kwargs))
         else:
-            broadcast_transaction_dashtest(transaction, **kwargs)
+            return asyncio.run(broadcast_transaction_dashtest(transaction, **kwargs))
     elif network.COIN == "DOGE":
         if not network.TESTNET:
-            asyncio.run(broadcast_transaction_doge(transaction, **kwargs))
+            return asyncio.run(broadcast_transaction_doge(transaction, **kwargs))
         else:
-            broadcast_transaction_dogetest(transaction, **kwargs)
+            return asyncio.run(broadcast_transaction_dogetest(transaction, **kwargs))
     elif network.COIN == "ETH":
-        asyncio.run(broadcast_transaction_eth(transaction, **kwargs))
+        return asyncio.run(broadcast_transaction_eth(transaction, **kwargs))
     elif network.COIN == "BCY":
-        asyncio.run(broadcast_transaction_bcy(transaction, **kwargs))
+        return asyncio.run(broadcast_transaction_bcy(transaction, **kwargs))
     else:
         raise ValueError("Cannot broadcast transaction: Unsupported network")
 
@@ -43,27 +43,27 @@ def broadcast_transaction(transaction, network, **kwargs):
 def tx_hash(transaction: bytes, network):
     if network.COIN == "BTC":
         if not network.TESTNET:
-            asyncio.run(tx_hash_btc(transaction))
+            return tx_hash_btc(transaction)
         else:
-            asyncio.run(tx_hash_btctest(transaction))
+            return tx_hash_btctest(transaction)
     elif network.COIN == "LTC":
         if not network.TESTNET:
-            asyncio.run(tx_hash_ltc(transaction))
+            return tx_hash_ltc(transaction)
         else:
-            tx_hash_ltctest(transaction)
+            return tx_hash_ltctest(transaction)
     elif network.COIN == "DASH":
         if not network.TESTNET:
-            asyncio.run(tx_hash_dash(transaction))
+            return tx_hash_dash(transaction)
         else:
-            tx_hash_dashtest(transaction)
+            return tx_hash_dashtest(transaction)
     elif network.COIN == "DOGE":
         if not network.TESTNET:
-            asyncio.run(tx_hash_doge(transaction))
+            return tx_hash_doge(transaction)
         else:
-            tx_hash_dogetest(transaction)
+            return tx_hash_dogetest(transaction)
     elif network.COIN == "ETH":
-        asyncio.run(tx_hash_eth(transaction))
+        return tx_hash_eth(transaction)
     elif network.COIN == "BCY":
-        asyncio.run(tx_hash_bcy(transaction))
+        return tx_hash_bcy(transaction)
     else:
         raise ValueError("Cannot broadcast transaction: Unsupported network")

@@ -5,8 +5,11 @@
 
 import binascii
 import unittest
-from zpywallet.broadcast import broadcast_transaction
+from unittest.mock import patch
+from zpywallet.broadcast import broadcast_transaction, tx_hash
 from zpywallet import network
+from zpywallet.broadcast.eth.all import tx_hash_eth
+from zpywallet.broadcast.eth.fullnode import broadcast_transaction_eth_generic
 
 
 class TestBroadcast(unittest.TestCase):
@@ -55,3 +58,55 @@ class TestBroadcast(unittest.TestCase):
         broadcast_transaction(rawtx, network.LitecoinMainNet)
 
     # test 008 reserved for ltctest
+
+    def test_008_eth_tx_hash(self):
+        rawtx = b"0x02f87401820189840426229985050abb4114825208947322ef15f695d2adae83ddd38b722c156277bf4f871057acf5f7800080c001a0f17ee75e1f64ddd8d98318f18a17521fcbb108b832bb2cc8270118e9613d251ca057b36d360f0f477a4fa8ecda3fc424d5ebe1beaaa89eea04354233e5927e5116"
+        self.assertEqual(
+            tx_hash_eth(rawtx),
+            "0x8266a740d79310062e1c8be67bb2808edf53d6fb6b01e6653a2c10a8d2682b20",
+        )
+        self.assertEqual(tx_hash(rawtx, network.EthereumMainNet), tx_hash_eth(rawtx))
+
+    def test_009_eth_generic_broadcast_uses_modern_web3_api(self):
+        class FakeHash:
+            def hex(self):
+                return "0xabc123"
+
+        class FakeEth:
+            def __init__(self):
+                self.sent = None
+
+            def send_raw_transaction(self, payload):
+                self.sent = payload
+                return FakeHash()
+
+        class FakeWeb3:
+            def __init__(self, _provider):
+                self.eth = FakeEth()
+
+            @staticmethod
+            def HTTPProvider(url):
+                return url
+
+        with patch("zpywallet.broadcast.eth.fullnode.Web3", FakeWeb3):
+            txid = __import__(
+                "asyncio"
+            ).run(
+                broadcast_transaction_eth_generic(
+                    "0xdeadbeef", url="https://example.invalid"
+                )
+            )
+
+        self.assertEqual(txid, "0xabc123")
+
+    def test_010_broadcast_transaction_returns_async_result(self):
+        async def fake_eth_broadcast(_tx, **_kwargs):
+            return "ok"
+
+        with patch(
+            "zpywallet.broadcast.broadcast.broadcast_transaction_eth",
+            fake_eth_broadcast,
+        ):
+            self.assertEqual(
+                broadcast_transaction(b"0x00", network.EthereumMainNet), "ok"
+            )
