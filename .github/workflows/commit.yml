@@ -8,12 +8,13 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
 
     steps:
     - uses: actions/checkout@v4
@@ -32,7 +33,7 @@ jobs:
       run: tox
 
     - name: Upload coverage reports to Codecov
-      if: matrix.python-version == '3.12' && secrets.CODECOV_TOKEN != ''
+      if: matrix.python-version == '3.14' && env.CODECOV_TOKEN != ''
       uses: codecov/codecov-action@v4
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
+        token: ${{ env.CODECOV_TOKEN }}
