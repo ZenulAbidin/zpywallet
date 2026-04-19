@@ -5,7 +5,6 @@ from .fullnode import broadcast_transaction_eth_generic
 from .mew import broadcast_transaction_eth_mew
 from ...nodes.eth import eth_nodes
 from ...utils.keccak import Keccak256
-from .._parallel import gather_broadcast_tasks
 
 
 def _extract_raw_transaction(raw_transaction_hex):
@@ -95,4 +94,4 @@ async def broadcast_transaction_eth(raw_transaction_hex, **kwargs):
             broadcast_transaction_eth_generic(normalized_transaction, **node)
         )
 
-    await gather_broadcast_tasks(awaitables)
+    await asyncio.gather(*awaitables, return_exceptions=True)

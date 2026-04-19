@@ -55,6 +55,7 @@
 - `done` `test/build/lint/type failure`: revalidate the current tree end to end with focused wallet/EVM tests, full `pytest`, repo-native `tox` lint/docs, and the release build metadata checks.
 - `done` `broken flow`: make `CryptoClient.initialize_database()` actually fail over across cache providers instead of aborting after the first transient backend error.
 - `done` `broken flow`: make `Wallet.broadcast_transaction()` return the underlying provider results instead of silently discarding the broadcast outcome.
+- `done` `broken flow`: restore deterministic Ethereum provider dispatch while keeping real concurrent fan-out by moving blocking ETH broadcast I/O into provider-local thread offloads and gathering the awaitables directly.
 - `done` `developer experience issue affecting completion`: fix the usage guide examples so `CryptoClient.get_balance()` and `BitcoinSegwitMainNet` are shown with the actual current API names.
 - `done` `developer experience issue affecting completion`: fix the usage guide text so it matches the current wallet API and behavior (`random_address()`, monitored change addresses, and corrected serialization wording).
 - `done` `security/validation/data integrity issue`: fix hash-only address decoding and mixed spent/unspent wallet output enumeration so `PublicKey.from_address()` works for base58/bech32 inputs and `Wallet.get_utxos(only_unspent=False)` no longer misindexes or crashes.
@@ -180,14 +181,21 @@
 - `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 tests/test_08_transaction.py` -> success on the committed tree during the completion audit
 - `rg -n "random_adress|does not currently make use of change|byte strem|mnemonic phrase you want to do" docs/source README.rst` -> success after the usage-guide sync fix; no stale phrases remained
 - `./.venv/bin/python -m tox -e docs` -> success after syncing the usage guide with the current wallet behavior (`docs: OK`)
+- `./.venv/bin/python -m tox` -> failed before the latest ETH broadcast fix; `tests/test_07_broadcast.py::TestBroadcast::test_012_eth_broadcast_normalizes_signed_transaction_objects` exposed nondeterministic provider dispatch order after the earlier concurrency change (`1 failed, 126 passed`)
+- `./.venv/bin/python -m pytest tests/test_07_broadcast.py -q` -> success after the ETH broadcast dispatch fix (`11 passed, 1 warning in 42.84s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/broadcast/eth/all.py zpywallet/broadcast/eth/blockcypher.py zpywallet/broadcast/eth/fullnode.py zpywallet/broadcast/eth/mew.py` -> success after the ETH broadcast dispatch fix
+- `./.venv/bin/python -m pytest tests -q` -> success on the final tree after the ETH broadcast dispatch fix (`127 passed, 1 warning in 616.62s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the final tree after the ETH broadcast dispatch fix
+- `./.venv/bin/python -m tox -e docs` -> success on the final tree after the ETH broadcast dispatch fix (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/*` -> success on the final tree after the ETH broadcast dispatch fix
 
 ## Current Iteration Summary
-- Chosen task: complete a final docs-scope audit after the earlier wallet-core fixes and remove any remaining public usage-guide drift.
-- In-scope evidence: the repo ships Sphinx docs and validates them in CI with `tox -e docs`, so stale public API/behavior text is part of the supported product surface.
+- Chosen task: repair the last CI-equivalent regression uncovered by the completion audit in the Ethereum broadcast path.
+- In-scope evidence: `tox` is the project’s CI command, and its full run failed in a supported broadcast test covering signed EVM transaction normalization.
 - Changes made:
-- audited the remaining `TODO`/`pass`/`NotImplemented` hits in core code and confirmed they are abstract exceptions, provider failover loops, or documented out-of-scope polish rather than unfinished production-path features
-- fixed `docs/source/usage.rst` so it now uses the actual `Wallet.random_address()` API, documents monitored change addresses on the internal branch, and corrects nearby wording errors
-- reran repo-native docs validation and a direct stale-phrase search on the patched tree
+- moved the blocking Ethereum provider calls in `zpywallet.broadcast.eth` behind provider-local `asyncio.to_thread(...)` boundaries and switched the aggregator to direct `asyncio.gather(...)`
+- kept real concurrent fan-out for live providers while restoring deterministic coroutine dispatch order for the normalized signed-transaction path exercised by the test suite
+- reran the targeted broadcast tests, full `pytest`, repo-native lint/docs, and the release build metadata checks on the patched tree
 - Remaining work: no clearly justified in-scope implementation work remains beyond the already-documented out-of-scope polish and external-environment limitations.
 
 ## Unresolved Blockers

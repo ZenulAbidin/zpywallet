@@ -1,5 +1,7 @@
-import requests
+import asyncio
 import hashlib
+
+import requests
 
 from ...errors import NetworkException
 
@@ -11,23 +13,26 @@ async def broadcast_transaction_eth_blockcypher(raw_transaction_hex):
         raw_transaction_hex (str): The raw transaction in hexadecimal form.
     """
 
-    api_url = "https://api.blockcypher.com/v1/eth/main/txs/push"
-    payload = {"tx": raw_transaction_hex}
+    def _broadcast():
+        api_url = "https://api.blockcypher.com/v1/eth/main/txs/push"
+        payload = {"tx": raw_transaction_hex}
 
-    try:
-        response = requests.post(api_url, json=payload, timeout=30)
-    except Exception as e:
-        raise NetworkException(
-            "Connection error while broadcasting transaction: {}".format(str(e))
-        )
+        try:
+            response = requests.post(api_url, json=payload, timeout=30)
+        except Exception as e:
+            raise NetworkException(
+                "Connection error while broadcasting transaction: {}".format(str(e))
+            )
 
-    if response.status_code == 201:
-        return hashlib.sha256(
-            hashlib.sha256(raw_transaction_hex.encode()).digest()
-        ).digest()  # Transaction ID
-    else:
+        if response.status_code == 201:
+            return hashlib.sha256(
+                hashlib.sha256(raw_transaction_hex.encode()).digest()
+            ).digest()  # Transaction ID
+
         raise NetworkException(
             "Failed to broadcast Ethereum transaction using BlockCypher API: {}".format(
                 response.text
             )
         )
+
+    return await asyncio.to_thread(_broadcast)
