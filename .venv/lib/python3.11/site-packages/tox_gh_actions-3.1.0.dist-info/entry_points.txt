@@ -1,0 +1,2 @@
+[tox]
+tox_gh_actions = tox_gh_actions.plugin

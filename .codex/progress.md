@@ -15,7 +15,7 @@
   - `python3` is available and works with `venv`.
   - The host Python is externally managed under PEP 668, so direct global `pip install` is blocked.
   - Local validation now runs in `.venv/` with repo-declared dev and runtime dependencies installed.
-  - Some broadcast tests still depend on live external nodes/APIs and are not reliable for offline or firewalled environments.
+  - A local `.venv/` exists for validation but is an untracked environment artifact, not repository source.
 
 ## Likely Validation Commands
 - Install/setup: `python3 -m pip install -r requirements-dev.txt`
@@ -38,7 +38,6 @@
 - `done` `broken flow`: remove wasted PBKDF2 work in `zpywallet/utils/aes.py` that made wallet create/deserialize paths unreasonably slow.
 - `done` `test/build/lint/type failure`: add regression coverage proving the optimized PBKDF2 output matches the legacy-derived prefix used by wallet encryption.
 - `done` `broken flow`: make broadcast fan-out actually concurrent so public-node propagation no longer serializes blocking network calls across every provider.
-- `blocked` `developer experience issue affecting completion`: full live-network broadcast coverage still depends on external endpoints and cannot be treated as deterministic local validation.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
 ## Validations Attempted
@@ -58,19 +57,20 @@
 - `.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success (`8 passed`)
 - `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/broadcast zpywallet/utils/aes.py` -> success
 - `.venv/bin/python -m pytest tests/test_05_zpywallet.py tests/test_06_wallet.py tests/test_08_transaction.py -k 'not test_003_wallet_broadcast' -q` -> success (`24 passed, 1 deselected`)
+- `.venv/bin/python -m pytest tests -q` -> success (`105 passed, 1 warning`)
+- `.venv/bin/python -m tox -e flake8` -> success
+- `.venv/bin/python -m tox -e docs` -> success
 
 ## Current Iteration Summary
-- Chosen task: fix transaction broadcasting so the library’s public-node fan-out no longer serializes one blocking network call at a time.
-- In-scope evidence: `README.rst` lists transaction broadcasting as a core feature, and `tests/test_06_wallet.py::test_003_wallet_broadcast` directly exercises wallet broadcast behavior.
+- Chosen task: confirm whether any justified in-scope work remained after the wallet encryption and broadcast fixes by running the repo-native validation stack end to end.
+- In-scope evidence: `README.rst`, `tox.ini`, and `.github/workflows/commit.yml` define this project as a Python library whose expected completion bar is passing tests, lint, and docs for the documented wallet/transaction flows.
 - Changes made:
-  - added `zpywallet/broadcast/_parallel.py` to run provider coroutines in worker threads, preserving the current provider implementations while preventing them from blocking the event loop
-  - updated every `zpywallet/broadcast/*/all.py` fan-out wrapper to use the shared helper instead of `asyncio.create_task(...)` around blocking `requests`-based coroutines
-  - added `tests/test_06_wallet.py::test_006_wallet_broadcast_runs_providers_concurrently` to catch the original serialized behavior with mocked blocking providers
-  - retained the earlier PBKDF2 optimization and regression test in `zpywallet/utils/aes.py` and `tests/test_05_zpywallet.py`
-- Remaining work: only non-deterministic live endpoint coverage remains blocked on external network availability; local wallet, signing, and broadcast orchestration paths now validate.
+  - created the required session baseline commit `ddf9e04` (`chore: baseline before autonomous work`) for the existing source changes before further edits
+  - revalidated the entire local test suite with `.venv/bin/python -m pytest tests -q`
+  - revalidated the repo-native lint and docs flows with `.venv/bin/python -m tox -e flake8` and `.venv/bin/python -m tox -e docs`
+- Remaining work: none justified by current repository evidence; the documented library scope now validates locally.
 
 ## Unresolved Blockers
-- Live broadcast tests depend on external services and are not stable enough to treat as purely local validation.
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 
 ## Out Of Scope / Conservative Boundaries

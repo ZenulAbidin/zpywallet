@@ -24,3 +24,10 @@ Recent history favors short, imperative commit subjects such as `Update README.r
 
 ## Security & Data Handling
 Never commit real seed phrases, private keys, API tokens, or wallet exports. Use the existing test vectors and mocks instead of live secrets or production endpoints.
+
+----
+
+Current issues (non exhaustive list)
+
+- Github actions for this repository fails completely. Please investigate the cause by replicating the tests locally, then fix the code or update the tests accordingly.
+
