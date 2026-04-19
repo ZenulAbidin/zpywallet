@@ -26,7 +26,7 @@ def script_is_p2pkh(script):
 
 
 def script_is_p2sh(script):
-    return len(script) == 23 and script[0:2] == b"\xa9\x14" and script[24] == b"\x87"
+    return len(script) == 23 and script[0:2] == b"\xa9\x14" and script[22] == 0x87
 
 
 def script_is_p2wpkh(script):

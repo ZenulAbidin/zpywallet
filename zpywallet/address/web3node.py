@@ -72,9 +72,16 @@ class Web3Client:
                 pass
         return value
 
+    def _get_transaction_receipt(self, tx_hash):
+        get_receipt = getattr(self.web3.eth, "get_transaction_receipt", None)
+        if get_receipt is None:
+            get_receipt = self.web3.eth.getTransactionReceipt
+        return get_receipt(tx_hash)
+
     def _clean_tx(self, element, block):
         new_element = wallet_pb2.Transaction()
-        new_element.txid = self._normalize_web3_hash(element["hash"])
+        tx_hash = element["hash"]
+        new_element.txid = self._normalize_web3_hash(tx_hash)
         block_number = self._normalize_web3_value(element.get("blockNumber"))
         if block_number is not None:
             new_element.confirmed = True
@@ -97,16 +104,24 @@ class Web3Client:
             (element.get("input") or "0x")[2:]
         )
 
-        gas = int(self._normalize_web3_value(element["gas"], 0))
-        new_element.ethlike_transaction.gas = gas
-        if "maxFeePerGas" in element.keys():
-            new_element.total_fee = (
-                int(self._normalize_web3_value(element["maxFeePerGas"], 0)) * gas
-            )
-        else:
-            new_element.total_fee = (
-                int(self._normalize_web3_value(element["gasPrice"], 0)) * gas
-            )
+        gas_limit = int(self._normalize_web3_value(element.get("gas"), 0))
+        gas_used = 0
+        gas_price = None
+        if new_element.confirmed:
+            receipt = self._get_transaction_receipt(tx_hash)
+            gas_used = int(self._normalize_web3_value(receipt.get("gasUsed"), 0))
+            gas_price = self._normalize_web3_value(receipt.get("effectiveGasPrice"))
+
+        if gas_price is None:
+            if "gasPrice" in element.keys():
+                gas_price = self._normalize_web3_value(element["gasPrice"], 0)
+            else:
+                gas_price = self._normalize_web3_value(element.get("maxFeePerGas"), 0)
+        gas_price = int(gas_price or 0)
+
+        billed_gas = gas_used if gas_used else gas_limit
+        new_element.ethlike_transaction.gas = gas_used
+        new_element.total_fee = gas_price * billed_gas
 
         new_element.fee_metric = wallet_pb2.WEI
         return new_element

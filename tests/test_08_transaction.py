@@ -492,3 +492,21 @@ class TestAddress(unittest.TestCase):
         outputs[0]["address"] = "mutated"
 
         self.assertEqual(wrapped.sat_outputs()[0]["address"], "bc1qoutput")
+
+    def test_010_evm_transaction_wrapper_reports_stored_gas(self):
+        transaction = wallet_pb2.Transaction()
+        transaction.fee_metric = wallet_pb2.FeeMetric.Value("WEI")
+        transaction.total_fee = 84000
+        transaction.ethlike_transaction.txfrom = (
+            "0xd73e8e2ac0099169e7404f23c6caa94cf1884384"
+        )
+        transaction.ethlike_transaction.txto = (
+            "0xea83c649dd49a6ec44c9e2943eb673a8fbb7bab6"
+        )
+        transaction.ethlike_transaction.amount = 25
+        transaction.ethlike_transaction.gas = 21000
+
+        wrapped = WalletTransaction(transaction, EthereumMainNet)
+
+        self.assertEqual(wrapped.evm_gas(), 21000)
+        self.assertEqual(wrapped.total_fee(in_standard_units=False), (84000, "wei"))

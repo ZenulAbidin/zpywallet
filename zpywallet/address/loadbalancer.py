@@ -8,6 +8,8 @@ from ..generated import wallet_pb2
 from ..errors import NetworkException
 from .provider import AddressProvider
 from contextlib import suppress
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 # TODO we currently have no easy way to update cache providers asynchronously.
 
@@ -35,9 +37,15 @@ class CryptoClient(AddressProvider):
         fullnode_endpoints = kwargs.get("fullnode_endpoints") or []
         esplora_endpoints = kwargs.get("esplora_endpoints") or []
         blockcypher_tokens = kwargs.get("blockcypher_tokens") or []
-        self.db_connection_parameters = (
-            kwargs.get("db_connection_parameters") if use_database else None
-        )
+        self._db_tempdir = None
+        self.db_connection_parameters = None
+        if use_database:
+            self.db_connection_parameters = kwargs.get("db_connection_parameters")
+            if not self.db_connection_parameters:
+                # The docs promise sqlite as the default DBAPI backend.
+                self._db_tempdir = TemporaryDirectory(prefix="zpywallet-")
+                db_path = Path(self._db_tempdir.name) / "txcache.sqlite"
+                self.db_connection_parameters = f"sqlite:///{db_path}"
 
         if use_database:
             for endpoint in fullnode_endpoints:

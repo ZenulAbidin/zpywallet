@@ -44,7 +44,12 @@
 - `done` `broken flow`: repair the documented BTC wallet send path so decrypted WIFs, fee policies, address-hash lookup, and segwit `nsequence` handling all work under the real `Wallet.create_transaction()` flow.
 - `done` `security/validation/data integrity issue`: fix wallet-core helpers so `get_balance()` only counts confirmed UTXOs as confirmed and `random_address()` draws from the full configured receive gap instead of collapsing to a low-byte subset.
 - `done` `security/validation/data integrity issue`: make `Transaction.sat_inputs()` and `sat_outputs()` return copies so witness data and output metadata stay stable across repeated public API calls.
-- `todo` `security/validation/data integrity issue`: the EVM transaction wrapper still exposes stored `gas` as `gasUsed`, which looks semantically wrong for history/reporting.
+- `done` `broken flow`: make the documented default sqlite cache real for database-backed EVM clients so `Wallet.get_transaction_history()` can read ETH history without an explicit DB URI.
+- `done` `broken flow`: generate correct P2SH output scripts for script-hash recipient addresses instead of serializing them as P2PKH outputs.
+- `done` `security/validation/data integrity issue`: use Web3 receipts for confirmed EVM history so cached gas and total fees reflect actual execution rather than the submitted gas limit.
+- `done` `missing in-scope feature`: route BTC-like wallet change to a monitored internal/change branch and include change-branch keys when later spending change UTXOs.
+- `todo` `broken flow`: BIP32 public-only child derivation still appears incorrect, so the documented watch-only/public derivation path is not trustworthy yet.
+- `todo` `developer experience issue affecting completion`: wallet construction now pays a noticeable cost to precompute change-branch addresses at the default gap limit, and the wallet suite runtime regressed enough that it needs a more scalable representation or caching strategy.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
 ## Validations Attempted
@@ -104,20 +109,38 @@
 - `.venv/bin/python - <<'PY' ... Transaction(...).sat_inputs(); Transaction(...).sat_inputs(include_witness=True) ... PY` -> failed before fix; the first call deleted witness data from the wrapper's cached input metadata
 - `.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success after the transaction-wrapper copy fix (`10 passed, 1 warning in 2.40s`)
 - `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/transaction.py tests/test_08_transaction.py` -> success
+- `.venv/bin/python - <<'PY' ... SQLTransactionStorage(None).get_block_height() ... PY` -> failed before fix (`DatabaseError: Error getting block height from database: 'NoneType' object is not subscriptable`), confirming the documented default sqlite cache was not actually configured
+- `.venv/bin/python - <<'PY' ... Web3Client(..., url='https://example.invalid').get_transaction_history() ... PY` -> failed before fix (`NetworkException: Failed to get transaction history: Error storing txo: 'NoneType' object is not subscriptable`)
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -k 'eth_wallet_create_transaction or eth_wallet_history_uses_default_sqlite_cache' -q` -> success after the cache fix (`2 passed, 9 deselected, 1 warning in 16.97s`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/address/loadbalancer.py tests/test_06_wallet.py` -> success after the cache fix
+- `.venv/bin/python -m pytest tests/test_06_wallet.py tests/test_09_address.py -q` -> success after the cache fix (`18 passed, 1 warning in 105.41s`)
+- `.venv/bin/python - <<'PY' ... PublicKey.address_script('3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy', BitcoinMainNet) ... PY` -> reproduced the bug before fix; returned a P2PKH script (`76a914...88ac`) for a P2SH address
+- `.venv/bin/python -m pytest tests/test_12_keys.py -q` -> success after the P2SH fix (`4 passed, 1 warning in 4.38s`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/utils/keys.py zpywallet/transactions/encode.py tests/test_12_keys.py` -> success after the P2SH fix
+- `.venv/bin/python -m pytest tests/test_06_wallet.py tests/test_08_transaction.py tests/test_12_keys.py -q` -> success after the P2SH fix (`25 passed, 1 warning in 102.10s`)
+- `.venv/bin/python -m pytest tests/test_08_transaction.py tests/test_09_address.py -k 'evm or web3_client_reads_blocks_into_cache' -q` -> success after the receipt fix (`2 passed, 16 deselected, 1 warning in 2.32s`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/address/web3node.py zpywallet/transaction.py tests/test_08_transaction.py tests/test_09_address.py` -> success after the receipt fix
+- `.venv/bin/python -m pytest tests/test_08_transaction.py tests/test_09_address.py -q` -> success after the receipt fix (`18 passed, 1 warning in 4.44s`)
+- `.venv/bin/python -m pytest tests/test_06_wallet.py tests/test_08_transaction.py tests/test_09_address.py tests/test_12_keys.py -q` -> success on the current tree (`33 passed, 1 warning in 81.49s`)
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -k 'tracks_change_branch_separately or calculate_change_uses_internal_branch or create_wallet or wallet_create_transaction_executes_btc_flow' -q` -> success after the change-branch fix (`4 passed, 9 deselected, 1 warning in 63.88s`)
+- `.venv/bin/python -m pytest tests/test_08_transaction.py tests/test_09_address.py tests/test_12_keys.py -q` -> success on the current tree after the change-branch fix (`22 passed, 1 warning in 9.81s`)
+- `.venv/bin/python -m pytest tests/test_05_zpywallet.py -k test_006_bip84 -q` -> failed while probing public-only derivation (`watch_only` child address did not match the private-path result), which surfaced a separate BIP32 watch-only bug
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -q` -> not completed on the current tree before manual stop; runtime stayed CPU-bound for multiple minutes after the change-branch fix, which is now tracked as a performance follow-up
+- `ps -o pid,etime,pcpu,cmd -p <pytest-pid>` -> showed the long wallet-suite run remained CPU-bound rather than hung (about 45-49% CPU after multiple minutes)
 
 ## Current Iteration Summary
-- Chosen task: harden the public `Transaction` wrapper after reproducing source-level data mutation in repeated `sat_inputs()` calls.
-- In-scope evidence: `Transaction` objects are part of the documented wallet history API in `docs/source/usage.rst`, and callers are expected to be able to inspect inputs/outputs multiple times without altering cached metadata.
+- Chosen task: route wallet change through the internal/change derivation branch instead of recycling receive addresses.
+- In-scope evidence: the wallet model exposes `change_gap_limit`, and `wallet.py` was explicitly calculating change while still sending it to `random_address()` from the receive branch.
 - Changes made:
-  - changed `Transaction.sat_inputs()` to build copies of the cached input dicts and copy witness lists before optionally omitting them from the returned value
-  - changed `Transaction.sat_outputs()` to return copies instead of exposing the wrapper's internal output dicts directly
-  - added regression coverage proving witness data remains available after a prior `sat_inputs(include_witness=False)` call and that mutating returned outputs does not leak back into cached state
-- Remaining work: the EVM history wrapper still appears to conflate stored `gas` with `gasUsed`, and that is the next justified data-integrity item.
+- changed wallet key-material rebuilding so receive keys remain the public `private_keys()` API, while change addresses are derived on the internal branch and added to the monitored provider address set
+- changed BTC-like spending to derive change-branch private keys lazily when signing, so change UTXOs can later be matched and spent without exposing internal change keys through the public helper
+- changed change-output selection to use the internal branch instead of the receive branch and added regressions proving the change address is tracked separately and is spendable through `_to_human_friendly_utxo`
+- Remaining work: a separate BIP32 watch-only/public derivation path still looks broken, and the wallet-suite runtime increase from eager change-address derivation needs follow-up.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
-- This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source. The current source edits across the active iterations are limited to `tests/test_06_wallet.py`, `tests/test_08_transaction.py`, `zpywallet/destination.py`, `zpywallet/transaction.py`, `zpywallet/transactions/encode.py`, and `zpywallet/wallet.py`.
+- This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source. The current source edits across the active iterations are limited to `tests/test_06_wallet.py`, `tests/test_08_transaction.py`, `tests/test_09_address.py`, `tests/test_12_keys.py`, `zpywallet/address/loadbalancer.py`, `zpywallet/address/web3node.py`, `zpywallet/destination.py`, `zpywallet/transaction.py`, `zpywallet/transactions/encode.py`, `zpywallet/utils/keys.py`, and `zpywallet/wallet.py`.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.

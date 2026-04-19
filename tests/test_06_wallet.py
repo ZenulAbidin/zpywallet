@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from zpywallet.generated import wallet_pb2
 from zpywallet import Wallet
+from zpywallet.address.cache import SQLTransactionStorage
 from zpywallet.destination import Destination
 from zpywallet.broadcast.btc import all as btc_broadcast_all
 from zpywallet.network import BitcoinSegwitMainNet, EthereumMainNet
@@ -129,6 +130,51 @@ class TestWallet(unittest.TestCase):
         self.assertEqual(kwargs["network"], EthereumMainNet)
         self.assertIn("full_nodes", kwargs)
 
+    def test_006_eth_wallet_history_uses_default_sqlite_cache(self):
+        wallet = Wallet(
+            EthereumMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1,
+        )
+        db_uri = wallet.client.db_connection_parameters
+
+        self.assertTrue(db_uri.startswith("sqlite:///"))
+        self.assertTrue(wallet.client.cache_provider_list)
+        self.assertTrue(
+            all(
+                provider.db_connection_parameters == db_uri
+                for provider in wallet.client.cache_provider_list
+            )
+        )
+        cached_address = wallet.client.cache_provider_list[0].addresses[0]
+
+        transaction = wallet_pb2.Transaction(
+            txid="eth-tx-1",
+            timestamp=1234567890,
+            confirmed=True,
+            height=1,
+            total_fee=42000,
+            fee_metric=wallet_pb2.FeeMetric.Value("WEI"),
+        )
+        transaction.ethlike_transaction.txfrom = cached_address
+        transaction.ethlike_transaction.txto = (
+            "0xea83c649dd49a6ec44c9e2943eb673a8fbb7bab6"
+        )
+        transaction.ethlike_transaction.amount = 25
+        transaction.ethlike_transaction.gas = 21000
+
+        storage = SQLTransactionStorage(db_uri)
+        storage.store_transaction(transaction)
+        storage.commit()
+
+        history = wallet.get_transaction_history()
+
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].txid(), "eth-tx-1")
+        self.assertEqual(history[0].evm_from(), cached_address)
+        self.assertEqual(history[0].evm_gas(), 21000)
+
     def test_006_wallet_create_transaction_executes_btc_flow(self):
         wallet = Wallet(
             BitcoinSegwitMainNet,
@@ -199,6 +245,64 @@ class TestWallet(unittest.TestCase):
 
         self.assertEqual(reader.calls, [2])
         self.assertEqual(address, wallet.addresses()[999])
+
+    def test_009_wallet_tracks_change_branch_separately(self):
+        wallet = Wallet(
+            BitcoinSegwitMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1,
+            change_gap_limit=1,
+        )
+        change_address = wallet.client.addresses[1]
+        fake_utxo = UTXO(
+            None,
+            None,
+            _network=BitcoinSegwitMainNet,
+            _internal_param_do_not_use={
+                "txid": "11" * 32,
+                "index": 0,
+                "amount": 1000,
+                "address": change_address,
+                "height": 1,
+            },
+        )
+
+        self.assertEqual(len(wallet.addresses()), 1)
+        self.assertEqual(len(wallet.client.addresses), 2)
+        self.assertNotIn(change_address, wallet.addresses())
+
+        matched = wallet._to_human_friendly_utxo(
+            [fake_utxo], wallet._spend_private_keys("zpywallet")
+        )
+
+        self.assertEqual(len(matched), 1)
+        self.assertEqual(matched[0]._output["address"], change_address)
+
+    def test_010_wallet_calculate_change_uses_internal_branch(self):
+        wallet = Wallet(
+            BitcoinSegwitMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1,
+            change_gap_limit=1,
+        )
+        source_address = wallet.addresses()[0]
+        change_address = wallet.client.addresses[1]
+        inputs = [
+            SimpleNamespace(amount=lambda in_standard_units=False: 50000),
+        ]
+        destinations = [
+            Destination(source_address, 0.0001, BitcoinSegwitMainNet),
+            Destination(source_address, 0, BitcoinSegwitMainNet),
+        ]
+
+        with patch("zpywallet.wallet.create_transaction", return_value="00"):
+            with patch("zpywallet.wallet.transaction_size_simple", return_value=100):
+                change = wallet._calculate_change(inputs, destinations, fee_rate=1)
+
+        self.assertEqual(change.address(), change_address)
+        self.assertNotIn(change.address(), wallet.addresses())
 
     def test_006_wallet_broadcast_runs_providers_concurrently(self):
         async def blocking_provider(*args, **kwargs):

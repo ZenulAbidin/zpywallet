@@ -36,7 +36,7 @@ class Transaction:
             self._evm_metadata["from"] = transaction.ethlike_transaction.txfrom
             self._evm_metadata["to"] = transaction.ethlike_transaction.txto
             self._evm_metadata["amount"] = transaction.ethlike_transaction.amount
-            self._evm_metadata["gasUsed"] = transaction.ethlike_transaction.gas
+            self._evm_metadata["gas"] = transaction.ethlike_transaction.gas
             self._evm_metadata["data"] = transaction.ethlike_transaction.data
         else:
             self._sat_metadata["feeRate"] = transaction.btclike_transaction.fee
@@ -143,7 +143,7 @@ class Transaction:
         """
         if not self._network.SUPPORTS_EVM:
             raise ValueError("Blockchain does not support the 'evm_gas' property")
-        return self._evm_metadata["gasUsed"]  # always in WEI
+        return self._evm_metadata["gas"]
 
     def evm_data(self):
         """

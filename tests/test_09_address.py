@@ -287,6 +287,13 @@ class TestAddress(unittest.TestCase):
                     ],
                 }
 
+            def get_transaction_receipt(self, tx_hash):
+                self.calls.append(("receipt", tx_hash))
+                return {
+                    "gasUsed": 15000,
+                    "effectiveGasPrice": 4,
+                }
+
         class FakeWeb3:
             def __init__(self):
                 self.eth = FakeEth()
@@ -305,6 +312,8 @@ class TestAddress(unittest.TestCase):
         history = client.get_transaction_history()
         self.assertEqual(len(history), 2)
         self.assertEqual(history[0].ethlike_transaction.amount, 25)
+        self.assertEqual(history[0].ethlike_transaction.gas, 15000)
+        self.assertEqual(history[0].total_fee, 60000)
         self.assertEqual(history[0].ethlike_transaction.data, bytes.fromhex("1234"))
 
         storage = SQLTransactionStorage(db_uri)

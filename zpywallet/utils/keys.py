@@ -854,7 +854,7 @@ class PublicKey:
                 if b[0] == network.PUBKEY_ADDRESS:
                     return b"\x76\xa9\x14" + b[1:] + b"\x88\xac"
                 elif b[0] == network.SCRIPT_ADDRESS:
-                    return b"\x76\xa9\x14" + b[1:] + b"\x88\xac"
+                    return b"\xa9\x14" + b[1:] + b"\x87"
                 else:
                     raise ValueError("Unknown address type")
             except ValueError:

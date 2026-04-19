@@ -157,6 +157,7 @@ class Wallet:
         blockcypher_tokens = kwargs.get("blockcypher_tokens")
 
         self._network = network
+        self._change_addresses = []
         derivation_path = derivation_path or (
             network.BIP32_SEGWIT_PATH or network.BIP32_PATH
         )
@@ -219,22 +220,8 @@ class Wallet:
         self.container.esplora_endpoints.extend(esplora_endpoints or [])
         self.container.blockcypher_tokens.extend(blockcypher_tokens or [])
 
-        self.encrypted_private_keys = []
-        for i in range(0, receive_gap_limit):
-            privkey = hdwallet.get_child_for_path(
-                f"{derivation_path}/0/{i}"
-            ).private_key
-            pubkey = privkey.public_key
-
-            # Add an Address
-            address = self.container.addresses.add()
-            address.address = pubkey.address()
-            address.pubkey = pubkey.to_hex()
-            self.encrypted_private_keys.append(
-                privkey.to_hex() if network.SUPPORTS_EVM else privkey.to_wif()
-            )
-        self.encrypted_private_keys = encrypt_str(
-            json.dumps(self.encrypted_private_keys), password
+        self._rebuild_key_material(
+            hdwallet, password, receive_addresses=self.container.addresses
         )
 
         self._setup_client(max_cycles=max_cycles)
@@ -290,37 +277,51 @@ class Wallet:
 
         self = cls(network, seed_phrase, password, _with_wallet=False)
         self.container = wallet
+        self._change_addresses = []
         hdwallet = HDWallet.from_mnemonic(mnemonic=seed_phrase, network=network)
 
-        self.encrypted_private_keys = []
         if not self.container.addresses:
             addresses = self.container.addresses
         else:
             addresses = None
-        for i in range(0, self.container.receive_gap_limit):
-            privkey = hdwallet.get_child_for_path(
-                f"{self.container.derivation_path}/0/{i}"
-            ).private_key
-            self.encrypted_private_keys.append(
-                privkey.to_hex() if network.SUPPORTS_EVM else privkey.to_wif()
-            )
-            if addresses is not None:
-                pubkey = privkey.public_key
-
-                # Rebuild addresses only when the serialized wallet did not
-                # contain them.
-                address = addresses.add()
-                address.address = pubkey.address()
-                address.pubkey = pubkey.to_hex()
-        self.encrypted_private_keys = encrypt_str(
-            json.dumps(self.encrypted_private_keys), password
-        )
+        self._rebuild_key_material(hdwallet, password, receive_addresses=addresses)
 
         del seed_phrase
         del password
 
         self._setup_client(max_cycles=max_cycles)
         return self
+
+    def _rebuild_key_material(self, hdwallet, password, receive_addresses=None):
+        self._change_addresses = []
+        receive_private_keys = []
+
+        receive_branch = hdwallet.get_child_for_path(
+            f"{self.container.derivation_path}/0"
+        )
+        for i in range(0, self.container.receive_gap_limit):
+            privkey = receive_branch.get_child(i).private_key
+            pubkey = privkey.public_key
+            encoded_privkey = (
+                privkey.to_hex() if self._network.SUPPORTS_EVM else privkey.to_wif()
+            )
+            receive_private_keys.append(encoded_privkey)
+            if receive_addresses is not None:
+                address = receive_addresses.add()
+                address.address = pubkey.address()
+                address.pubkey = pubkey.to_hex()
+
+        if self.container.change_gap_limit:
+            change_branch = hdwallet.get_child_for_path(
+                f"{self.container.derivation_path}/1"
+            )
+            for i in range(0, self.container.change_gap_limit):
+                privkey = change_branch.get_child(i).private_key
+                self._change_addresses.append(privkey.public_key.address())
+
+        self.encrypted_private_keys = encrypt_str(
+            json.dumps(receive_private_keys), password
+        )
 
     def network(self):
         """
@@ -332,7 +333,9 @@ class Wallet:
         return self._network
 
     def _setup_client(self, max_cycles=100):
-        addresses = [a.address for a in self.container.addresses]
+        addresses = [a.address for a in self.container.addresses] + list(
+            self._change_addresses
+        )
 
         fullnode_endpoints = []
         esplora_endpoints = []
@@ -424,7 +427,9 @@ class Wallet:
         Returns:
             List[UTXO]: The list of unspent transaction outputs.
         """
-        addresses = [a.address for a in self.container.addresses]
+        addresses = [a.address for a in self.container.addresses] + list(
+            self._change_addresses
+        )
 
         transactions = self.get_transaction_history()
         utxo_set = []
@@ -516,14 +521,8 @@ class Wallet:
         """
         return [a.address for a in self.container.addresses]
 
-    def random_address(self):
-        """
-        Get a random address from the wallet.
-
-        Returns:
-            str: A randomly selected address from the wallet.
-        """
-        addresses = self.addresses()
+    @staticmethod
+    def _random_address_from_pool(addresses):
         if not addresses:
             raise ValueError("Wallet has no addresses")
 
@@ -536,6 +535,20 @@ class Wallet:
         while limit >= len(addresses):
             limit = int.from_bytes(Random.new().read(watermark), byteorder="big")
         return addresses[limit]
+
+    def random_address(self):
+        """
+        Get a random address from the wallet.
+
+        Returns:
+            str: A randomly selected address from the wallet.
+        """
+        return self._random_address_from_pool(self.addresses())
+
+    def _random_change_address(self):
+        if self._change_addresses:
+            return self._random_address_from_pool(self._change_addresses)
+        return self.random_address()
 
     def private_keys(self, password):
         """
@@ -552,6 +565,29 @@ class Wallet:
             private_keys = json.loads(
                 decrypt_str(self.encrypted_private_keys, password)
             )
+            return private_keys
+        except ValueError as e:
+            del private_keys
+            raise e
+
+    def _spend_private_keys(self, password):
+        private_keys = self.private_keys(password)
+        try:
+            if self.container.change_gap_limit:
+                seed_phrase = decrypt_str(self.container.encrypted_seed_phrase, password)
+                hdwallet = HDWallet.from_mnemonic(
+                    mnemonic=seed_phrase, network=self._network
+                )
+                change_branch = hdwallet.get_child_for_path(
+                    f"{self.container.derivation_path}/1"
+                )
+                for i in range(0, self.container.change_gap_limit):
+                    privkey = change_branch.get_child(i).private_key
+                    private_keys.append(
+                        privkey.to_hex()
+                        if self._network.SUPPORTS_EVM
+                        else privkey.to_wif()
+                    )
             return private_keys
         except ValueError as e:
             del private_keys
@@ -611,7 +647,9 @@ class Wallet:
         return (
             None
             if change <= 0
-            else Destination(self.random_address(), change / unit, self._network)
+            else Destination(
+                self._random_change_address(), change / unit, self._network
+            )
         )
 
     # Fee rate is in the unit used by the network, ie. vbytes, bytes or wei
@@ -680,7 +718,7 @@ class Wallet:
                     confirmed_inputs.append(i)
             inputs = confirmed_inputs
 
-        private_keys = self.private_keys(password)
+        private_keys = self._spend_private_keys(password)
 
         inputs = self._to_human_friendly_utxo(inputs, private_keys)
 
@@ -688,7 +726,7 @@ class Wallet:
         # change output. Otherwise, the remaining balance is going to the miner.
         # This is not the real change input, we need to find the size of the
         # transaction first.
-        change = Destination(self.random_address(), 0, self._network)
+        change = Destination(self._random_change_address(), 0, self._network)
         destinations_without_change = destinations[:]
         destinations_without_change.append(change)
 

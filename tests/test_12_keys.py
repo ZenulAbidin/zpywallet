@@ -1,6 +1,6 @@
 import unittest
 from hashlib import sha256
-from zpywallet.network import BitcoinSegwitMainNet
+from zpywallet.network import BitcoinMainNet, BitcoinSegwitMainNet
 from zpywallet.utils.keys import PrivateKey, PublicKey, Point
 from zpywallet.errors import IncompatibleNetworkException
 
@@ -97,3 +97,12 @@ class TestKey(unittest.TestCase):
         self.assertTrue(pp.rfc2440_verify(signature))
         r, s, z = p.rsz_sign(message)
         self.assertTrue(pp.rsz_verify(message, r, s, z, pp.base58_address()))
+
+    def test_004_address_script_uses_p2sh_template_for_script_addresses(self):
+        script = PublicKey.address_script(
+            "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy", BitcoinMainNet
+        )
+        self.assertEqual(
+            script,
+            bytes.fromhex("a914b472a266d0bd89c13706a4132ccfb16f7c3b9fcb87"),
+        )
