@@ -57,6 +57,7 @@
 - `done` `broken flow`: make `Wallet.broadcast_transaction()` return the underlying provider results instead of silently discarding the broadcast outcome.
 - `done` `developer experience issue affecting completion`: fix the usage guide examples so `CryptoClient.get_balance()` and `BitcoinSegwitMainNet` are shown with the actual current API names.
 - `done` `security/validation/data integrity issue`: fix hash-only address decoding and mixed spent/unspent wallet output enumeration so `PublicKey.from_address()` works for base58/bech32 inputs and `Wallet.get_utxos(only_unspent=False)` no longer misindexes or crashes.
+- `done` `security/validation/data integrity issue`: replace the no-op low-level BTC signing tests with real manual UTXO fixtures so legacy, segwit, mixed-input, and explicit-change signing paths are actually exercised.
 - `out_of_scope` `polish`: wallet construction still spends several seconds deriving default-gap addresses, but reducing that further now would require a larger wallet-state redesign or protobuf persistence change than the current repository evidence justifies.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
@@ -167,23 +168,28 @@
 - `./.venv/bin/python -m pytest tests/test_06_wallet.py -k 'test_012_wallet_get_utxos_can_include_spent_outputs or test_006_wallet_create_transaction_executes_btc_flow or test_007_wallet_get_balance_counts_only_confirmed_utxos' -q` -> success after the mixed-output UTXO fix (`3 passed, 13 deselected, 1 warning in 40.36s`)
 - `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/utils/keys.py zpywallet/utxo.py zpywallet/wallet.py tests/test_06_wallet.py tests/test_12_keys.py` -> success after the key/UTXO fixes
 - `./.venv/bin/python -m pytest tests/test_06_wallet.py tests/test_08_transaction.py tests/test_12_keys.py -q` -> manually stopped after several minutes while still CPU-bound; retained the narrower passing regressions instead of waiting on a duplicate broad run
+- `rg -n "if len\\(utxos\\) > 0|AddressProvider\\(\\[], transactions=\\[tx\\]\\)" tests/test_08_transaction.py tests/test_06_wallet.py tests -g '!zpywallet/generated/**'` -> revealed that the low-level BTC signing tests in `tests/test_08_transaction.py` were short-circuiting before they ever called `create_transaction()`
+- `./.venv/bin/python - <<'PY' ... manual legacy/segwit UTXO signing smoke ... PY` -> success; confirmed that explicit manual UTXO fixtures can exercise the real signer paths and produce parseable legacy/segwit transactions
+- `./.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success after the signer-test hardening (`13 passed, 1 warning in 4.40s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 tests/test_08_transaction.py` -> success after the signer-test hardening
+- `./.venv/bin/python -m tox -e flake8` -> success on the current tree after the signer-test hardening
+- `./.venv/bin/python -m pytest tests -q` -> success on the current tree after the signer-test hardening (`127 passed, 1 warning in 597.42s`)
 
 ## Current Iteration Summary
-- Chosen task: continue source-level auditing of the public wallet/key helpers and fix the next reproducible core-flow bug after the earlier wallet/EVM hardening work.
-- In-scope evidence: this repo exposes address decoding and wallet output enumeration as public library APIs, so `PublicKey.from_address()` and `Wallet.get_utxos()` are part of the documented core inspection/signing surface.
+- Chosen task: harden the critical low-level BTC signing tests after discovery showed they were not exercising the signer at all.
+- In-scope evidence: this repo is a wallet/transaction library, so the legacy/segwit signing paths are core product behavior and their regression tests are part of the repository’s completion bar.
 - Changes made:
-- returned immediately from `PublicKey.__init__` when constructing hash-only keys so base58/bech32 address decoding no longer tries to call `.format()` on raw hash bytes
-- preserved the raw RIPEMD-160 hash for hash-only public keys and added regression coverage for both legacy and bech32 address round-trips
-- taught `UTXO`/`Wallet.get_utxos()` to index either the unspent-only or full output view consistently, exposed `UTXO.spent()`, and fixed the internal manual-UTXO network field initialization
-- added a wallet regression proving `get_utxos(only_unspent=False)` now returns mixed spent/unspent outputs without crashing
-- reran focused wallet/key regressions and targeted lint on the touched files; a broader overlapping wallet suite was started, confirmed to be CPU-bound, and then stopped as non-essential duplicate coverage
-- Remaining work: continue scanning for any other source-level broken flows before considering the current scope complete.
+- replaced the first five BTC signing tests in `tests/test_08_transaction.py` with explicit manual UTXO fixtures instead of empty-provider/protobuf setup that yielded zero spendable outputs
+- added helper methods to build signer-ready manual UTXOs and shared destination fixtures without relying on unrelated address-provider behavior
+- asserted on real signed-transaction structure through `parse_transaction()`, including legacy fallback, segwit marker/witness data, mixed-input witness handling, and explicit change-output coverage
+- reran the focused transaction suite, repo-native lint, and the full `pytest tests -q` sweep; all passed on the current tree
+- Remaining work: none currently justified inside the repository’s conservative scope boundary beyond the already-documented out-of-scope polish and external-environment limitations.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
 - This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source.
-- No new environment blocker was introduced by the current fix; the remaining work is continued source auditing rather than a known external dependency issue.
+- No remaining in-scope implementation blocker is known after the current validation pass.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.

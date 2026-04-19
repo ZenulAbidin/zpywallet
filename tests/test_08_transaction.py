@@ -24,11 +24,9 @@ from zpywallet.transactions.encode import (
 )
 from zpywallet.utils.keys import PrivateKey, PublicKey
 from zpywallet.utxo import UTXO
-from zpywallet.nodes.btc import btc_nodes
 from zpywallet.nodes.eth import eth_nodes
-from zpywallet.transactions.decode import transaction_size_simple
+from zpywallet.transactions.decode import parse_transaction, transaction_size_simple
 from zpywallet.generated import wallet_pb2
-from zpywallet.address.provider import AddressProvider
 from zpywallet.transaction import Transaction as WalletTransaction
 
 
@@ -39,241 +37,184 @@ class TestAddress(unittest.TestCase):
     def tearDown(self):
         """Tear down test fixtures, if any."""
 
-    def test_000_legacy_sign(self):
-        """Test creating Satoshi-like legacy transactions."""
-        # To make things clear, we will use fake UTXOs from this address,
-        # derived from private key 0, which nobody can spend.
-        # We will use a fake private key (1) since we do not need to broadcast
-        # it anywhere, and that particular functionality has its own unit test.
-        # Segwit outputs are fine.
-        tx = wallet_pb2.Transaction()
-        tx.ParseFromString(
-            b'\n@0000000000000000000000000000000000000000000000000000000000000000\x10\x8c\x9e\xfa\xaf\x06\x18\x01 \xc0\xa23(\x90N0\x01z\xc2\x02\x12s\n@ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\x18\x80\xad\xe2\x04**bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4\x12m\n@ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\x10\x02\x18\x80\xad\xe2\x04*"1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH\x1a(\x08\xa0\xc2\x1e\x12"16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM\x1a2\x08\xa0\xc2\x1e\x12*bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c\x18\x01'  # noqa: E501
+    def _make_utxo(self, private_key, address, network, txid, amount, index=0):
+        return UTXO(
+            None,
+            None,
+            _network=network,
+            _internal_param_do_not_use={
+                "txid": txid,
+                "index": index,
+                "amount": amount,
+                "address": address,
+                "private_key": private_key,
+                "address_hash": private_key.public_key.hash160(),
+                "nsequence": "ffffffff",
+                "height": 1,
+                "confirmed": True,
+                "spent": False,
+            },
         )
 
-        provider = AddressProvider([], transactions=[tx])
-        saved_utxos = provider.get_utxos()
-        destinations = [
+    def _destinations(self, network):
+        return [
             Destination(
-                "16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM", 0.00000001, BitcoinMainNet
+                "16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM", 0.00000001, network
             ),
             Destination(
-                "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH", 0.00000002, BitcoinMainNet
+                "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH", 0.00000002, network
             ),
         ]
-        # The (1) private key has a sweeper attached to it so its balanace should always be zero.
-        # Therefore, the wallet.create_transaction method should fail with not enough funds.
-        utxos = []
-        for u in saved_utxos:
-            _u = UTXO(None, None, _internal_param_do_not_use={"amount": u.amount})
-            _u._output["amount"] = u.amount
-            _u._output["address"] = u.address
-            _u._output["height"] = u.height
-            _u._output["confirmed"] = u.confirmed
-            _u._output["txid"] = u.txid
-            _u._output["index"] = u.index
-            _u._output["private_key"] = PrivateKey.from_int(1)
-            _u._output["script_pubkey"] = PublicKey.address_script(
-                u.address, BitcoinMainNet
-            )
-            utxos.append(_u)
-        if len(utxos) > 0:
-            create_transaction(
-                utxos, destinations, network=BitcoinMainNet, full_nodes=btc_nodes
-            )
+
+    def test_000_legacy_sign(self):
+        """Test creating Satoshi-like legacy transactions."""
+        legacy_key = PrivateKey.from_int(1, network=BitcoinMainNet)
+        utxo = self._make_utxo(
+            legacy_key,
+            legacy_key.public_key.base58_address(True),
+            BitcoinMainNet,
+            "11" * 32,
+            50000,
+        )
+
+        signed_transaction = create_transaction(
+            [utxo], self._destinations(BitcoinMainNet), network=BitcoinMainNet
+        )
+        parsed_transaction, _ = parse_transaction(signed_transaction, segwit=False)
+
+        self.assertEqual(parsed_transaction["input_count"], 1)
+        self.assertEqual(parsed_transaction["output_count"], 2)
+        self.assertTrue(parsed_transaction["inputs"][0]["script_signature"])
 
     def test_001_fake_segwit_sign(self):
         """Test creating Satoshi-like segwit transactions which have no segwit
-        inputs, so f=alling back to legacy signing.
+        inputs, so falling back to legacy signing.
         """
-        # To make things clear, we will use fake UTXOs from this address,
-        # derived from private key 0, which nobody can spend.
-        # We will use a fake private key (1) since we do not need to broadcast
-        # it anywhere, and that particular functionality has its own unit test.
-        # Segwit output addresses are fine
-        tx = wallet_pb2.Transaction()
-        tx.ParseFromString(
-            b'\n@0000000000000000000000000000000000000000000000000000000000000000\x10\x8c\x9e\xfa\xaf\x06\x18\x01 \xc0\xa23(\x90N0\x01z\xc2\x02\x12s\n@ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\x18\x80\xad\xe2\x04**bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4\x12m\n@ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\x10\x02\x18\x80\xad\xe2\x04*"1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH\x1a(\x08\xa0\xc2\x1e\x12"16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM\x1a2\x08\xa0\xc2\x1e\x12*bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c\x18\x01'  # noqa: E501
+        legacy_key = PrivateKey.from_int(1, network=BitcoinSegwitMainNet)
+        utxo = self._make_utxo(
+            legacy_key,
+            legacy_key.public_key.base58_address(True),
+            BitcoinSegwitMainNet,
+            "22" * 32,
+            50000,
         )
 
-        provider = AddressProvider([], transactions=[tx])
-        saved_utxos = provider.get_utxos()
-        destinations = [
-            Destination(
-                "16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM", 0.00000001, BitcoinSegwitMainNet
-            ),
-            Destination(
-                "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH", 0.00000002, BitcoinSegwitMainNet
-            ),
-        ]
-        # The (1) private key has a sweeper attached to it so its balanace should always be zero.
-        # Therefore, the wallet.create_transaction method should fail with not enough funds.
-        utxos = []
-        for u in saved_utxos:
-            _u = UTXO(None, None, _internal_param_do_not_use={"amount": u.amount})
-            _u._output["amount"] = u.amount
-            _u._output["address"] = u.address
-            _u._output["height"] = u.height
-            _u._output["confirmed"] = u.confirmed
-            _u._output["txid"] = u.txid
-            _u._output["index"] = u.index
-            _u._output["private_key"] = PrivateKey.from_int(1)
-            _u._output["script_pubkey"] = PublicKey.address_script(
-                u.address, BitcoinSegwitMainNet
-            )
-            utxos.append(_u)
-        if len(utxos) > 0:
-            create_transaction(
-                utxos, destinations, network=BitcoinSegwitMainNet, full_nodes=btc_nodes
-            )
+        signed_transaction = create_transaction(
+            [utxo],
+            self._destinations(BitcoinSegwitMainNet),
+            network=BitcoinSegwitMainNet,
+        )
+        parsed_transaction, _ = parse_transaction(signed_transaction, segwit=False)
+
+        self.assertNotEqual(signed_transaction[8:12], "0001")
+        self.assertEqual(parsed_transaction["input_count"], 1)
+        self.assertEqual(parsed_transaction["output_count"], 2)
+        self.assertTrue(parsed_transaction["inputs"][0]["script_signature"])
 
     def test_002_segwit_sign(self):
         """Test creating Satoshi-like segwit transactions, all segwit inputs."""
-        # To make things clear, we will use fake UTXOs from this address,
-        # derived from private key 0, which nobody can spend.
-        # We will use a fake private key (1) since we do not need to broadcast
-        # it anywhere, and that particular functionality has its own unit test.
-        tx = wallet_pb2.Transaction()
-        tx.ParseFromString(
-            b'\n@0000000000000000000000000000000000000000000000000000000000000000\x10\x8c\x9e\xfa\xaf\x06\x18\x01 \xc0\xa23(\x90N0\x01z\xd3\x01\x12s\n@ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\x18\x80\xad\xe2\x04**bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4\x1a(\x08\xa0\xc2\x1e\x12"16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM\x1a2\x08\xa0\xc2\x1e\x12*bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c\x18\x01'  # noqa: E501
+        segwit_key = PrivateKey.from_int(2, network=BitcoinSegwitMainNet)
+        utxo = self._make_utxo(
+            segwit_key,
+            segwit_key.public_key.bech32_address(),
+            BitcoinSegwitMainNet,
+            "33" * 32,
+            50000,
         )
 
-        provider = AddressProvider([], transactions=[tx])
-        saved_utxos = provider.get_utxos()
-        destinations = [
-            Destination(
-                "16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM", 0.00000001, BitcoinSegwitMainNet
-            ),
-            Destination(
-                "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH", 0.00000002, BitcoinSegwitMainNet
-            ),
-        ]
-        # The (1) private key has a sweeper attached to it so its balanace should always be zero.
-        # Therefore, the wallet.create_transaction method should fail with not enough funds
-        utxos = []
-        for u in saved_utxos:
-            _u = UTXO(None, None, _internal_param_do_not_use={"amount": u.amount})
-            _u._output["amount"] = u.amount
-            _u._output["address"] = u.address
-            _u._output["height"] = u.height
-            _u._output["confirmed"] = u.confirmed
-            _u._output["txid"] = u.txid
-            _u._output["index"] = u.index
-            _u._output["private_key"] = PrivateKey.from_int(1)
-            _u._output["script_pubkey"] = PublicKey.address_script(
-                u.address, BitcoinSegwitMainNet
-            )
-            utxos.append(_u)
-        if len(utxos) > 0:
-            create_transaction(
-                utxos, destinations, network=BitcoinSegwitMainNet, full_nodes=btc_nodes
-            )
+        signed_transaction = create_transaction(
+            [utxo],
+            self._destinations(BitcoinSegwitMainNet),
+            network=BitcoinSegwitMainNet,
+        )
+        parsed_transaction, _ = parse_transaction(signed_transaction, segwit=True)
+
+        self.assertEqual(signed_transaction[8:12], "0001")
+        self.assertEqual(parsed_transaction["input_count"], 1)
+        self.assertEqual(parsed_transaction["output_count"], 2)
+        self.assertEqual(len(parsed_transaction["inputs"][0]["witness_data"]), 2)
+        self.assertEqual(parsed_transaction["inputs"][0]["script_signature"], "")
 
     def test_003_segwit_sign_partial(self):
         """Test creating Satoshi-like segwit transactions, mixed segwit and legacy inputs."""
-        # To make things clear, we will use fake UTXOs from this address,
-        # derived from private key 0, which nobody can spend.
-        # We will use a fake private key (1) since we do not need to broadcast
-        # it anywhere, and that particular functionality has its own unit test.
-        tx = wallet_pb2.Transaction()
-        tx.ParseFromString(
-            b'\n@0000000000000000000000000000000000000000000000000000000000000000\x10\x8c\x9e\xfa\xaf\x06\x18\x01 \xc0\xa23(\x90N0\x01z\xc2\x02\x12s\n@ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\x18\x80\xad\xe2\x04**bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4\x12m\n@ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\x10\x02\x18\x80\xad\xe2\x04*"1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH\x1a(\x08\xa0\xc2\x1e\x12"16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM\x1a2\x08\xa0\xc2\x1e\x12*bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c\x18\x01'  # noqa: E501
-        )
-
-        provider = AddressProvider([], transactions=[tx])
-        saved_utxos = provider.get_utxos()
-        destinations = [
-            Destination(
-                "16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM", 0.00000001, BitcoinSegwitMainNet
+        legacy_key = PrivateKey.from_int(1, network=BitcoinSegwitMainNet)
+        segwit_key = PrivateKey.from_int(2, network=BitcoinSegwitMainNet)
+        utxos = [
+            self._make_utxo(
+                legacy_key,
+                legacy_key.public_key.base58_address(True),
+                BitcoinSegwitMainNet,
+                "44" * 32,
+                25000,
             ),
-            Destination(
-                "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH", 0.00000002, BitcoinSegwitMainNet
+            self._make_utxo(
+                segwit_key,
+                segwit_key.public_key.bech32_address(),
+                BitcoinSegwitMainNet,
+                "55" * 32,
+                25000,
+                index=1,
             ),
         ]
-        # The (1) private key has a sweeper attached to it so its balanace should always be zero.
-        # Therefore, the wallet.create_transaction method should fail with not enough funds.
-        utxos = []
-        for u in saved_utxos:
-            _u = UTXO(None, None, _internal_param_do_not_use={"amount": u.amount})
-            _u._output["amount"] = u.amount
-            _u._output["address"] = u.address
-            _u._output["height"] = u.height
-            _u._output["confirmed"] = u.confirmed
-            _u._output["txid"] = u.txid
-            _u._output["index"] = u.index
-            _u._output["private_key"] = PrivateKey.from_int(1)
-            _u._output["script_pubkey"] = PublicKey.address_script(
-                u.address, BitcoinSegwitMainNet
-            )
-            utxos.append(_u)
-        if len(utxos) > 0:
-            create_transaction(
-                utxos, destinations, network=BitcoinSegwitMainNet, full_nodes=btc_nodes
-            )
+
+        signed_transaction = create_transaction(
+            utxos,
+            self._destinations(BitcoinSegwitMainNet),
+            network=BitcoinSegwitMainNet,
+        )
+        parsed_transaction, _ = parse_transaction(signed_transaction, segwit=True)
+
+        self.assertEqual(signed_transaction[8:12], "0001")
+        self.assertEqual(parsed_transaction["input_count"], 2)
+        self.assertEqual(parsed_transaction["output_count"], 2)
+        self.assertEqual(parsed_transaction["inputs"][0]["witness_data"], [])
+        self.assertEqual(len(parsed_transaction["inputs"][1]["witness_data"]), 2)
 
     def test_004_sign_with_change(self):
         """Test creating Satoshi-like transactions with change calculation"""
-        # To make things clear, we will use fake UTXOs from this address,
-        # derived from private key 0, which nobody can spend.
-        # We will use a fake private key (1) since we do not need to broadcast
-        # it anywhere, and that particular functionality has its own unit test.
-        tx = wallet_pb2.Transaction()
-        tx.ParseFromString(
-            b'\n@0000000000000000000000000000000000000000000000000000000000000000\x10\x8c\x9e\xfa\xaf\x06\x18\x01 \xc0\xa23(\x90N0\x01z\xcb\x01\x12k\n@ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\x18\x80\xad\xe2\x04*"16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM\x1a(\x08\xa0\xc2\x1e\x12"16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM\x1a2\x08\xa0\xc2\x1e\x12*bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c\x18\x01'  # noqa: E501
-        )
-
-        provider = AddressProvider([], transactions=[tx])
-        saved_utxos = provider.get_utxos()
-        destinations = [
-            Destination(
-                "16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM", 0.00000001, BitcoinSegwitMainNet
-            ),
-            Destination(
-                "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH", 0.00000002, BitcoinSegwitMainNet
-            ),
+        segwit_key = PrivateKey.from_int(2, network=BitcoinSegwitMainNet)
+        utxos = [
+            self._make_utxo(
+                segwit_key,
+                segwit_key.public_key.bech32_address(),
+                BitcoinSegwitMainNet,
+                "66" * 32,
+                50000,
+            )
         ]
-        # The (1) private key has a sweeper attached to it so its balanace should always be zero.
-        # Therefore, the wallet.create_transaction method should fail with not enough funds.
-        utxos = []
-        for u in saved_utxos:
-            _u = UTXO(None, None, _internal_param_do_not_use={"amount": u.amount})
-            _u._output["amount"] = u.amount
-            _u._output["address"] = u.address
-            _u._output["height"] = u.height
-            _u._output["confirmed"] = u.confirmed
-            _u._output["txid"] = u.txid
-            _u._output["index"] = u.index
-            _u._output["private_key"] = PrivateKey.from_int(1)
-            _u._output["script_pubkey"] = PublicKey.address_script(
-                u.address, BitcoinSegwitMainNet
+        destinations = self._destinations(BitcoinSegwitMainNet)
+
+        temp_transaction = create_transaction(
+            utxos, destinations, network=BitcoinSegwitMainNet
+        )
+        fee_rate = 1
+        size = transaction_size_simple(temp_transaction)
+        total_inputs = sum([i.amount(in_standard_units=False) for i in utxos])
+        total_outputs = sum(
+            [o.amount(in_standard_units=False) for o in destinations]
+        )
+        self.assertGreaterEqual(total_inputs, total_outputs + size * fee_rate)
+
+        change_value = total_inputs - total_outputs - size * fee_rate
+        self.assertGreater(change_value, 0)
+
+        destinations.append(
+            Destination(
+                "16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM",
+                change_value,
+                BitcoinSegwitMainNet,
+                in_standard_units=False,
             )
-            utxos.append(_u)
-        if len(utxos) > 0:
-            temp_transaction = create_transaction(
-                utxos, destinations, network=BitcoinSegwitMainNet, full_nodes=btc_nodes
-            )
-            fee_rate = 1
-            size = transaction_size_simple(temp_transaction)
-            total_inputs = sum([i.amount(in_standard_units=False) for i in utxos])
-            total_outputs = sum(
-                [o.amount(in_standard_units=False) for o in destinations]
-            )
-            if total_inputs < total_outputs + size * fee_rate:
-                raise ValueError("Not enough balance for this transaction")
-            change_value = total_inputs - total_outputs - size * fee_rate
-            if change_value > 0:
-                change = Destination(
-                    "16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM",
-                    change_value / 1e8,
-                    BitcoinSegwitMainNet,
-                )
-                destinations.append(change)
-                create_transaction(
-                    utxos,
-                    destinations,
-                    network=BitcoinSegwitMainNet,
-                    full_nodes=btc_nodes,
-                )
+        )
+        signed_transaction = create_transaction(
+            utxos, destinations, network=BitcoinSegwitMainNet
+        )
+        parsed_transaction, _ = parse_transaction(signed_transaction, segwit=True)
+
+        self.assertEqual(parsed_transaction["output_count"], 3)
+        self.assertIn(
+            change_value, [output["value"] for output in parsed_transaction["outputs"]]
+        )
 
     def test_005_eth_sign(self):
         """Test creating EVM Ethereum transactions."""
