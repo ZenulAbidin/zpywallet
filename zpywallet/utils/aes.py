@@ -38,7 +38,7 @@ NONCE_LEN = 12
 
 
 def hash_password_pbkdf2(
-    password: bytes, salt: bytes, iterations=600000, key_length=128
+    password: bytes, salt: bytes, iterations=600000, key_length=KEY_LEN + NONCE_LEN
 ):
     # Hash the password using PBKDF2 with OWASP-recommended rounds
     return hashlib.pbkdf2_hmac("sha256", password + salt, salt, iterations, key_length)

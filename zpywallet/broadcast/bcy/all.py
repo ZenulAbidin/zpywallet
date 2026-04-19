@@ -2,6 +2,7 @@ import asyncio
 import binascii
 import hashlib
 from .blockcypher import broadcast_transaction_bcy_blockcypher
+from .._parallel import gather_broadcast_tasks
 
 
 def tx_hash_bcy(raw_transaction_hex):
@@ -25,13 +26,5 @@ async def broadcast_transaction_bcy(raw_transaction_hex):
         raw_transaction_hex (str): The raw transaction in hexadecimal form.
     """
 
-    tasks = []
-
-    tasks.append(
-        asyncio.create_task(broadcast_transaction_bcy_blockcypher(raw_transaction_hex))
-    )
-
-    try:
-        await asyncio.gather(*tasks, return_exceptions=True)
-    except Exception:
-        pass
+    awaitables = [broadcast_transaction_bcy_blockcypher(raw_transaction_hex)]
+    await gather_broadcast_tasks(awaitables)

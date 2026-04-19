@@ -12,10 +12,10 @@
 - Validation: `tox`, `pytest`, `coverage`, `flake8`, `Sphinx`, `rstcheck`.
 - CI evidence: `.github/workflows/commit.yml` runs `python -m pip install -r requirements-dev.txt` then `tox` on Python 3.8-3.12.
 - Local workspace constraints:
-  - `python3` is available.
-  - `python` command is not available.
-  - `pytest` and `tox` are not installed yet in the current environment.
-  - Runtime dependencies such as `Cryptodome` are not installed, so importing the package currently fails locally.
+  - `python3` is available and works with `venv`.
+  - The host Python is externally managed under PEP 668, so direct global `pip install` is blocked.
+  - Local validation now runs in `.venv/` with repo-declared dev and runtime dependencies installed.
+  - Some broadcast tests still depend on live external nodes/APIs and are not reliable for offline or firewalled environments.
 
 ## Likely Validation Commands
 - Install/setup: `python3 -m pip install -r requirements-dev.txt`
@@ -34,9 +34,12 @@
 
 ## Backlog
 - `done` `broken flow`: fix transaction creation loop in `zpywallet/transactions/encode.py` so list inputs can be signed.
-- `todo` `test/build/lint/type failure`: install repo-declared tooling and run targeted wallet/transaction tests.
-- `todo` `broken flow`: continue searching for transaction and wallet regressions after local toolchain is available.
-- `blocked` `developer experience issue affecting completion`: current workspace lacks package/test dependencies, so meaningful runtime validation is blocked until installed.
+- `done` `developer experience issue affecting completion`: create a local `.venv` and install repo-declared tooling so runtime validation works under PEP 668.
+- `done` `broken flow`: remove wasted PBKDF2 work in `zpywallet/utils/aes.py` that made wallet create/deserialize paths unreasonably slow.
+- `done` `test/build/lint/type failure`: add regression coverage proving the optimized PBKDF2 output matches the legacy-derived prefix used by wallet encryption.
+- `done` `broken flow`: make broadcast fan-out actually concurrent so public-node propagation no longer serializes blocking network calls across every provider.
+- `blocked` `developer experience issue affecting completion`: full live-network broadcast coverage still depends on external endpoints and cannot be treated as deterministic local validation.
+- `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
 ## Validations Attempted
 - `python3 --version` -> success (`3.11.2`)
@@ -44,16 +47,31 @@
 - `python3 -m pytest --version` -> failed (`No module named pytest`)
 - `python3 - <<'PY' ... import zpywallet ... PY` -> failed (`No module named 'Cryptodome'`)
 - `python3 -m py_compile zpywallet/transactions/encode.py` -> success
+- `python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-dev.txt -r requirements.txt` -> success
+- `timeout 30s .venv/bin/python -u - <<'PY' ... Wallet(...) / serialize() / deserialize() ... PY` -> success after PBKDF2 optimization; wallet create in about 8s and deserialize in about 6s
+- `.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success (`8 passed`)
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -k 'not test_003_wallet_broadcast' -q` -> success (`5 passed, 1 deselected`)
+- `.venv/bin/python -m pytest tests/test_05_zpywallet.py -k 'test_009_pbkdf2_default_length_matches_legacy_prefix or test_000_create_wallet' -q` -> success (`2 passed`)
+- `.venv/bin/python -m pytest tests/test_05_zpywallet.py tests/test_06_wallet.py tests/test_08_transaction.py -k 'not test_003_wallet_broadcast' -q` -> success (`23 passed, 1 deselected`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/utils/aes.py tests/test_05_zpywallet.py` -> success
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -k 'test_000_create_wallet or test_005_eth_wallet_create_transaction or test_006_wallet_broadcast_runs_providers_concurrently' -q` -> success (`3 passed, 4 deselected`)
+- `.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success (`8 passed`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/broadcast zpywallet/utils/aes.py` -> success
+- `.venv/bin/python -m pytest tests/test_05_zpywallet.py tests/test_06_wallet.py tests/test_08_transaction.py -k 'not test_003_wallet_broadcast' -q` -> success (`24 passed, 1 deselected`)
 
 ## Current Iteration Summary
-- Chosen task: repair the central UTXO transaction construction loop.
-- In-scope evidence: `README.rst` and `tests/test_08_transaction.py` both define signed transaction creation as a core library flow.
-- Change made: replaced `range(inputs)` with `range(len(inputs))` in `zpywallet/transactions/encode.py` so list-based inputs are iterable in the signing loop.
-- Remaining work: install repo-declared dependencies, run targeted wallet/transaction tests, then continue scanning for any further wallet/transaction regressions.
+- Chosen task: fix transaction broadcasting so the library’s public-node fan-out no longer serializes one blocking network call at a time.
+- In-scope evidence: `README.rst` lists transaction broadcasting as a core feature, and `tests/test_06_wallet.py::test_003_wallet_broadcast` directly exercises wallet broadcast behavior.
+- Changes made:
+  - added `zpywallet/broadcast/_parallel.py` to run provider coroutines in worker threads, preserving the current provider implementations while preventing them from blocking the event loop
+  - updated every `zpywallet/broadcast/*/all.py` fan-out wrapper to use the shared helper instead of `asyncio.create_task(...)` around blocking `requests`-based coroutines
+  - added `tests/test_06_wallet.py::test_006_wallet_broadcast_runs_providers_concurrently` to catch the original serialized behavior with mocked blocking providers
+  - retained the earlier PBKDF2 optimization and regression test in `zpywallet/utils/aes.py` and `tests/test_05_zpywallet.py`
+- Remaining work: only non-deterministic live endpoint coverage remains blocked on external network availability; local wallet, signing, and broadcast orchestration paths now validate.
 
 ## Unresolved Blockers
-- Missing local dependencies from `requirements.txt` / `requirements-dev.txt` prevent import-time and test-time validation.
-- No `.codex/progress.md` existed before this iteration; it has now been created to preserve state for future iterations.
+- Live broadcast tests depend on external services and are not stable enough to treat as purely local validation.
+- The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.

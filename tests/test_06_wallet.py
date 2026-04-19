@@ -5,10 +5,13 @@
 
 
 import unittest
+import asyncio
+import time
 from unittest.mock import patch
 from zpywallet.generated import wallet_pb2
 from zpywallet import Wallet
 from zpywallet.destination import Destination
+from zpywallet.broadcast.btc import all as btc_broadcast_all
 from zpywallet.network import BitcoinSegwitMainNet, EthereumMainNet
 
 
@@ -123,3 +126,30 @@ class TestWallet(unittest.TestCase):
         self.assertEqual(args[1], destinations)
         self.assertEqual(kwargs["network"], EthereumMainNet)
         self.assertIn("full_nodes", kwargs)
+
+    def test_006_wallet_broadcast_runs_providers_concurrently(self):
+        async def blocking_provider(*args, **kwargs):
+            time.sleep(0.1)
+
+        with patch.multiple(
+            btc_broadcast_all,
+            broadcast_transaction_btc_bitaps=blocking_provider,
+            broadcast_transaction_btc_blockchain_info=blocking_provider,
+            broadcast_transaction_btc_blockchair=blocking_provider,
+            broadcast_transaction_btc_blockcypher=blocking_provider,
+            broadcast_transaction_btc_blockstream=blocking_provider,
+            broadcast_transaction_btc_mempool_space=blocking_provider,
+            broadcast_transaction_btc_smartbit=blocking_provider,
+            broadcast_transaction_btc_viabtc=blocking_provider,
+            btc_nodes=[],
+            btc_esplora_nodes=[],
+        ):
+            start = time.monotonic()
+            asyncio.run(
+                btc_broadcast_all.broadcast_transaction_btc(
+                    "00", rpc_nodes=[], esplora_nodes=[]
+                )
+            )
+            elapsed = time.monotonic() - start
+
+        self.assertLess(elapsed, 0.4)

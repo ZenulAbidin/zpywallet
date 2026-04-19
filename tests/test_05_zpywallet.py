@@ -11,6 +11,7 @@ from zpywallet.network import BitcoinSegwitMainNet
 from zpywallet.utils.bip32 import HDWallet
 from zpywallet.errors import IncompatibleNetworkException
 from zpywallet.utils.keys import PrivateKey
+from zpywallet.utils.aes import hash_password_pbkdf2
 
 
 class TestZPyWallet(unittest.TestCase):
@@ -409,3 +410,12 @@ class TestZPyWallet(unittest.TestCase):
             )
             == "5KN7MzqK5wt2TP1fQCYyHBtDrXdJuXbUzm4A9rKAteGu3Qi5CVR"
         )
+
+    def test_009_pbkdf2_default_length_matches_legacy_prefix(self):
+        password = b"zpywallet"
+        salt = b"12345678"
+
+        legacy = hash_password_pbkdf2(password, salt, iterations=2, key_length=128)
+        optimized = hash_password_pbkdf2(password, salt, iterations=2)
+
+        self.assertEqual(optimized, legacy[: len(optimized)])

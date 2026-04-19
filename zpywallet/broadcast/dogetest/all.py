@@ -2,6 +2,7 @@ import asyncio
 import binascii
 import hashlib
 from .fullnode import broadcast_transaction_dogetest_full_node
+from .._parallel import gather_broadcast_tasks
 
 
 def tx_hash_dogetest(raw_transaction_hex):
@@ -28,16 +29,10 @@ async def broadcast_transaction_dogetest(raw_transaction_hex, **kwargs):
 
     rpc_nodes = kwargs.get("rpc_nodes") or []
 
-    tasks = []
-
+    awaitables = []
     for node in rpc_nodes:
-        tasks.append(
-            asyncio.create_task(
-                broadcast_transaction_dogetest_full_node(raw_transaction_hex, **node)
-            )
+        awaitables.append(
+            broadcast_transaction_dogetest_full_node(raw_transaction_hex, **node)
         )
 
-    try:
-        await asyncio.gather(*tasks, return_exceptions=True)
-    except Exception:
-        pass
+    await gather_broadcast_tasks(awaitables)
