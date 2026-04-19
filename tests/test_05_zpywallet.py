@@ -386,6 +386,30 @@ class TestZPyWallet(unittest.TestCase):
             == "bc1q8c6fshw2dlwun7ekn9qwf37cu2rn755upcp6el"
         )
 
+    def test_006_public_only_child_derivation_matches_private_path(self):
+        mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        hdw = HDWallet.from_mnemonic(mnemonic)
+        account = hdw.get_child_for_path("m/84'/0'/0'")
+        watch_only = HDWallet.load_str_xkey(
+            account.dump_str_xkey(private=False), network=BitcoinSegwitMainNet
+        )
+
+        child_from_private = account.get_child_for_path("m/0/7")
+        child_from_watch_only = watch_only.get_child_for_path("M/0/7")
+
+        self.assertEqual(
+            child_from_watch_only.dump_str_xkey(private=False),
+            child_from_private.dump_str_xkey(private=False),
+        )
+        self.assertEqual(
+            child_from_watch_only.public_key.bech32_address(
+                compressed=True, witness_version=0
+            ),
+            child_from_private.public_key.bech32_address(
+                compressed=True, witness_version=0
+            ),
+        )
+
     def test_007_brainwallet(self):
         """Tests brainwallet generation."""
         w = HDWallet.from_brainwallet(

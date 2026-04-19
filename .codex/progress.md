@@ -48,8 +48,8 @@
 - `done` `broken flow`: generate correct P2SH output scripts for script-hash recipient addresses instead of serializing them as P2PKH outputs.
 - `done` `security/validation/data integrity issue`: use Web3 receipts for confirmed EVM history so cached gas and total fees reflect actual execution rather than the submitted gas limit.
 - `done` `missing in-scope feature`: route BTC-like wallet change to a monitored internal/change branch and include change-branch keys when later spending change UTXOs.
-- `todo` `broken flow`: BIP32 public-only child derivation still appears incorrect, so the documented watch-only/public derivation path is not trustworthy yet.
-- `todo` `developer experience issue affecting completion`: wallet construction now pays a noticeable cost to precompute change-branch addresses at the default gap limit, and the wallet suite runtime regressed enough that it needs a more scalable representation or caching strategy.
+- `done` `broken flow`: fix BIP32 watch-only/public child derivation and xpub round-tripping so the documented public-only path matches the private derivation path for non-hardened children.
+- `out_of_scope` `polish`: wallet construction still spends several seconds deriving default-gap addresses, but reducing that further now would require a larger wallet-state redesign or protobuf persistence change than the current repository evidence justifies.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
 ## Validations Attempted
@@ -127,22 +127,29 @@
 - `.venv/bin/python -m pytest tests/test_05_zpywallet.py -k test_006_bip84 -q` -> failed while probing public-only derivation (`watch_only` child address did not match the private-path result), which surfaced a separate BIP32 watch-only bug
 - `.venv/bin/python -m pytest tests/test_06_wallet.py -q` -> not completed on the current tree before manual stop; runtime stayed CPU-bound for multiple minutes after the change-branch fix, which is now tracked as a performance follow-up
 - `ps -o pid,etime,pcpu,cmd -p <pytest-pid>` -> showed the long wallet-suite run remained CPU-bound rather than hung (about 45-49% CPU after multiple minutes)
+- `./.venv/bin/python -m pytest tests/test_05_zpywallet.py -k 'test_006_public_only_child_derivation_matches_private_path or test_006_bip84 or test_001_bip32 or test_002_bip32 or test_003_bip32 or test_004_bip32 or test_005_bip32' -q` -> success after the BIP32 fix (`7 passed, 4 deselected, 1 warning in 2.42s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/utils/bip32.py tests/test_05_zpywallet.py` -> success after the BIP32 fix
+- `./.venv/bin/python - <<'PY' ... Wallet(..., change_gap_limit in {1,20,1000}) ... PY` -> success; wallet construction took about `4.88s`, `4.91s`, and `6.92s` respectively, so the remaining runtime cost is measurable but not a broken flow by itself
+- `./.venv/bin/python -m tox -e flake8` -> success on the final tree
+- `./.venv/bin/python -m pytest tests -q` -> success on the final tree (`118 passed, 1 warning in 529.61s`)
 
 ## Current Iteration Summary
-- Chosen task: route wallet change through the internal/change derivation branch instead of recycling receive addresses.
-- In-scope evidence: the wallet model exposes `change_gap_limit`, and `wallet.py` was explicitly calculating change while still sending it to `random_address()` from the receive branch.
+- Chosen task: repair the documented watch-only/public BIP32 derivation path.
+- In-scope evidence: README and `zpywallet/utils/bip32.py` explicitly describe public-only child derivation for insecure/server-side use, and the repo backlog had already identified that flow as broken.
 - Changes made:
-- changed wallet key-material rebuilding so receive keys remain the public `private_keys()` API, while change addresses are derived on the internal branch and added to the monitored provider address set
-- changed BTC-like spending to derive change-branch private keys lazily when signing, so change UTXOs can later be matched and spent without exposing internal change keys through the public helper
-- changed change-output selection to use the internal branch instead of the receive branch and added regressions proving the change address is tracked separately and is spendable through `_to_human_friendly_utxo`
-- Remaining work: a separate BIP32 watch-only/public derivation path still looks broken, and the wallet-suite runtime increase from eager change-address derivation needs follow-up.
+- fixed `HDWallet.get_child()` so watch-only derivation uses valid secp256k1 generator constants and real point addition instead of crashing on the public-only branch
+- fixed `HDWallet.load_xkey()` and the `bytes_int()` helper so valid xpub/xprv payloads round-trip back into `HDWallet` instances
+- propagated the selected network when reconstructing public keys from points/serialized xkeys and added a regression proving a watch-only account derives the same non-hardened child as the private path
+- Remaining work: no higher-priority broken core flows remain in the current repository-supported scope; the only open note is optional wallet-init/runtime optimization that would require a broader persisted-state redesign.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
-- This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source. The current source edits across the active iterations are limited to `tests/test_06_wallet.py`, `tests/test_08_transaction.py`, `tests/test_09_address.py`, `tests/test_12_keys.py`, `zpywallet/address/loadbalancer.py`, `zpywallet/address/web3node.py`, `zpywallet/destination.py`, `zpywallet/transaction.py`, `zpywallet/transactions/encode.py`, `zpywallet/utils/keys.py`, and `zpywallet/wallet.py`.
+- This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source.
+- No remaining source blockers were found for the repository's current documented wallet-library scope after the final full `pytest` and `flake8` passes.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.
 - Support for new coins/chains remains out of scope without direct repository evidence requiring it.
 - Local `.venv/` churn from validation is treated as workspace-only environment noise, not intended repository source work.
+- Further wallet-construction performance work is deferred because a meaningful fix would require persisting lazily generated change-address state or redesigning how monitored internal addresses are tracked, which is a larger product change than the current repository evidence requires.

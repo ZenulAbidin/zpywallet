@@ -73,11 +73,9 @@ def hex_int(val):
 
 
 def bytes_int(byte_seq):
-    return (
-        int(hexlify(byte_seq), 16)
-        if byte_seq is None or isinstance(byte_seq, int)
-        else byte_seq
-    )
+    if byte_seq is None or isinstance(byte_seq, int):
+        return byte_seq
+    return int(hexlify(byte_seq), 16)
 
 
 class HDWallet(object):
@@ -147,7 +145,7 @@ class HDWallet(object):
         if public_key:
             self.public_key = public_key
         elif public_pair:
-            self.public_key = PublicKey.from_point(public_pair)
+            self.public_key = PublicKey.from_point(public_pair, network=network)
         else:
             self.public_key = self.private_key.public_key
 
@@ -352,9 +350,12 @@ class HDWallet(object):
             # I_R is the child's chain code
         else:
             # Only use public information for this derivation
-            gen = coincurve.PublicKey.from_point(secp256k1.Gx, secp256k1.Gy)
+            gen = coincurve.PublicKey.from_point(secp256k1.gx, secp256k1.gy)
+            parent_key = coincurve.PublicKey(self.public_key.to_bytes())
             point = Point(
-                *gen.multiply(ichild_left).add(self.public_key.to_bytes()).point()
+                *coincurve.PublicKey.combine_keys(
+                    [gen.multiply(ichild_left), parent_key]
+                ).point()
             )
             # I_R is the child's chain code
 
@@ -616,7 +617,7 @@ class HDWallet(object):
                     unhexlify(f"{network.EXT_PUBLIC_KEY:x}".zfill(8)),
                     version,
                 )
-            pubkey = PublicKey.from_bytes(key_data)
+            pubkey = PublicKey.from_bytes(key_data, network=network)
         else:
             raise ValueError(f"Invalid key_data prefix, got {point_type}")
 
