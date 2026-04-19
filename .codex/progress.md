@@ -174,16 +174,18 @@
 - `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 tests/test_08_transaction.py` -> success after the signer-test hardening
 - `./.venv/bin/python -m tox -e flake8` -> success on the current tree after the signer-test hardening
 - `./.venv/bin/python -m pytest tests -q` -> success on the current tree after the signer-test hardening (`127 passed, 1 warning in 597.42s`)
+- `git status --short --branch` -> clean working tree after committing the pending signer-test/progress changes (`ahead 10`)
+- `./.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success on the committed tree during the completion audit (`13 passed, 1 warning in 2.23s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 tests/test_08_transaction.py` -> success on the committed tree during the completion audit
 
 ## Current Iteration Summary
-- Chosen task: harden the critical low-level BTC signing tests after discovery showed they were not exercising the signer at all.
-- In-scope evidence: this repo is a wallet/transaction library, so the legacy/segwit signing paths are core product behavior and their regression tests are part of the repository’s completion bar.
+- Chosen task: verify whether any in-scope work remained after the pending signer-test hardening patch and the earlier wallet-core fixes recorded in this progress log.
+- In-scope evidence: the repo’s current scope is a Python wallet library, so before termination it needs a source-level unfinished-work audit plus validation on the exact committed tree that contains the final transaction-regression changes.
 - Changes made:
-- replaced the first five BTC signing tests in `tests/test_08_transaction.py` with explicit manual UTXO fixtures instead of empty-provider/protobuf setup that yielded zero spendable outputs
-- added helper methods to build signer-ready manual UTXOs and shared destination fixtures without relying on unrelated address-provider behavior
-- asserted on real signed-transaction structure through `parse_transaction()`, including legacy fallback, segwit marker/witness data, mixed-input witness handling, and explicit change-output coverage
-- reran the focused transaction suite, repo-native lint, and the full `pytest tests -q` sweep; all passed on the current tree
-- Remaining work: none currently justified inside the repository’s conservative scope boundary beyond the already-documented out-of-scope polish and external-environment limitations.
+- audited the remaining `TODO`/`pass`/`NotImplemented` hits in core code and confirmed they are abstract exceptions, provider failover loops, or documented out-of-scope polish rather than unfinished production-path features
+- committed the previously pending signer-test/progress changes as the required clean baseline for this autonomous session
+- reran focused validation on the committed transaction-regression file and confirmed the working tree is clean
+- Remaining work: no clearly justified in-scope implementation work remains beyond the already-documented out-of-scope polish and external-environment limitations.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
