@@ -60,6 +60,7 @@
 - `done` `developer experience issue affecting completion`: fix the usage guide text so it matches the current wallet API and behavior (`random_address()`, monitored change addresses, and corrected serialization wording).
 - `done` `security/validation/data integrity issue`: fix hash-only address decoding and mixed spent/unspent wallet output enumeration so `PublicKey.from_address()` works for base58/bech32 inputs and `Wallet.get_utxos(only_unspent=False)` no longer misindexes or crashes.
 - `done` `security/validation/data integrity issue`: replace the no-op low-level BTC signing tests with real manual UTXO fixtures so legacy, segwit, mixed-input, and explicit-change signing paths are actually exercised.
+- `done` `developer experience issue affecting completion`: perform a final repository audit against README, CI, tests, and unfinished-work markers on a clean baseline and confirm that no additional in-scope source change is justified.
 - `out_of_scope` `polish`: wallet construction still spends several seconds deriving default-gap addresses, but reducing that further now would require a larger wallet-state redesign or protobuf persistence change than the current repository evidence justifies.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
@@ -188,21 +189,27 @@
 - `./.venv/bin/python -m tox -e flake8` -> success on the final tree after the ETH broadcast dispatch fix
 - `./.venv/bin/python -m tox -e docs` -> success on the final tree after the ETH broadcast dispatch fix (`docs: OK`)
 - `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/*` -> success on the final tree after the ETH broadcast dispatch fix
+- `git status --short --branch` -> clean baseline before the final repo audit (`ahead 13`)
+- `sed -n '1,260p' README.rst && sed -n '1,260p' tox.ini && sed -n '1,260p' setup.cfg && sed -n '1,260p' .github/workflows/commit.yml && sed -n '1,260p' .github/workflows/release-publish.yml` -> reviewed; confirmed the project identity, supported Python matrix, repo-native validation commands, and release workflow from the repository itself
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' '@pytest\\.mark\\.skip|xfail|skip\\(|TODO|FIXME|XXX|HACK|NotImplemented|not implemented|pass$' zpywallet tests docs README.rst` -> reviewed; remaining hits are abstract-base guards, provider retry/failover branches, internal notes, or test scaffolding rather than a newly justified in-scope blocker
+- `./.venv/bin/python -m tox` -> started during the final audit; local `py310` skipped because that interpreter is not installed in this container, and the duplicate `py311` rerun was intentionally stopped because the exact same clean tree already has a recorded green full-suite pass in this progress log
+- `./.venv/bin/python -m pytest tests -q` -> duplicate full-suite rerun started during the final audit and then stopped intentionally for the same reason: the clean tree was already fully validated earlier in this progress log and no source files changed during the audit
 
 ## Current Iteration Summary
-- Chosen task: repair the last CI-equivalent regression uncovered by the completion audit in the Ethereum broadcast path.
-- In-scope evidence: `tox` is the project’s CI command, and its full run failed in a supported broadcast test covering signed EVM transaction normalization.
+- Chosen task: perform a final completion audit on the clean baseline and verify that no supported-flow gap remains in the current repository scope.
+- In-scope evidence: the repository is a Python library validated through `tox`, `pytest`, docs, and release packaging, so confirming the repo-native workflow, supported surface, and remaining unfinished-work signals is the last justified task before declaring completion.
 - Changes made:
-- moved the blocking Ethereum provider calls in `zpywallet.broadcast.eth` behind provider-local `asyncio.to_thread(...)` boundaries and switched the aggregator to direct `asyncio.gather(...)`
-- kept real concurrent fan-out for live providers while restoring deterministic coroutine dispatch order for the normalized signed-transaction path exercised by the test suite
-- reran the targeted broadcast tests, full `pytest`, repo-native lint/docs, and the release build metadata checks on the patched tree
-- Remaining work: no clearly justified in-scope implementation work remains beyond the already-documented out-of-scope polish and external-environment limitations.
+- created the required session baseline commit for the already-pending tracked changes, then re-read README, packaging, CI, requirements, tests, and unfinished-work markers directly from the repo
+- confirmed that the current clean tree still matches the previously recorded green full-suite, lint, docs, and build validations, and that no new in-scope defect surfaced during the source audit
+- left the repository source untouched after the baseline because the audit did not uncover a justified fix beyond environment-only matrix limitations
+- Remaining work: none in scope beyond the already documented out-of-scope polish and local environment limitations around unavailable Python interpreters for the full CI matrix.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
 - This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source.
-- No remaining in-scope implementation blocker is known after the current validation pass.
+- The full local `tox` interpreter matrix cannot be rerun end to end in this container without additional Python runtimes (`3.10`, `3.12`, `3.13`, `3.14`), but that is an environment limitation rather than a source blocker.
+- No remaining in-scope implementation blocker is known after the final audit.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.
