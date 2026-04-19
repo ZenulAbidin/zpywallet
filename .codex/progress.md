@@ -56,6 +56,7 @@
 - `done` `broken flow`: make `CryptoClient.initialize_database()` actually fail over across cache providers instead of aborting after the first transient backend error.
 - `done` `broken flow`: make `Wallet.broadcast_transaction()` return the underlying provider results instead of silently discarding the broadcast outcome.
 - `done` `developer experience issue affecting completion`: fix the usage guide examples so `CryptoClient.get_balance()` and `BitcoinSegwitMainNet` are shown with the actual current API names.
+- `done` `developer experience issue affecting completion`: fix the usage guide text so it matches the current wallet API and behavior (`random_address()`, monitored change addresses, and corrected serialization wording).
 - `done` `security/validation/data integrity issue`: fix hash-only address decoding and mixed spent/unspent wallet output enumeration so `PublicKey.from_address()` works for base58/bech32 inputs and `Wallet.get_utxos(only_unspent=False)` no longer misindexes or crashes.
 - `done` `security/validation/data integrity issue`: replace the no-op low-level BTC signing tests with real manual UTXO fixtures so legacy, segwit, mixed-input, and explicit-change signing paths are actually exercised.
 - `out_of_scope` `polish`: wallet construction still spends several seconds deriving default-gap addresses, but reducing that further now would require a larger wallet-state redesign or protobuf persistence change than the current repository evidence justifies.
@@ -177,14 +178,16 @@
 - `git status --short --branch` -> clean working tree after committing the pending signer-test/progress changes (`ahead 10`)
 - `./.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success on the committed tree during the completion audit (`13 passed, 1 warning in 2.23s`)
 - `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 tests/test_08_transaction.py` -> success on the committed tree during the completion audit
+- `rg -n "random_adress|does not currently make use of change|byte strem|mnemonic phrase you want to do" docs/source README.rst` -> success after the usage-guide sync fix; no stale phrases remained
+- `./.venv/bin/python -m tox -e docs` -> success after syncing the usage guide with the current wallet behavior (`docs: OK`)
 
 ## Current Iteration Summary
-- Chosen task: verify whether any in-scope work remained after the pending signer-test hardening patch and the earlier wallet-core fixes recorded in this progress log.
-- In-scope evidence: the repo’s current scope is a Python wallet library, so before termination it needs a source-level unfinished-work audit plus validation on the exact committed tree that contains the final transaction-regression changes.
+- Chosen task: complete a final docs-scope audit after the earlier wallet-core fixes and remove any remaining public usage-guide drift.
+- In-scope evidence: the repo ships Sphinx docs and validates them in CI with `tox -e docs`, so stale public API/behavior text is part of the supported product surface.
 - Changes made:
 - audited the remaining `TODO`/`pass`/`NotImplemented` hits in core code and confirmed they are abstract exceptions, provider failover loops, or documented out-of-scope polish rather than unfinished production-path features
-- committed the previously pending signer-test/progress changes as the required clean baseline for this autonomous session
-- reran focused validation on the committed transaction-regression file and confirmed the working tree is clean
+- fixed `docs/source/usage.rst` so it now uses the actual `Wallet.random_address()` API, documents monitored change addresses on the internal branch, and corrects nearby wording errors
+- reran repo-native docs validation and a direct stale-phrase search on the patched tree
 - Remaining work: no clearly justified in-scope implementation work remains beyond the already-documented out-of-scope polish and external-environment limitations.
 
 ## Unresolved Blockers
