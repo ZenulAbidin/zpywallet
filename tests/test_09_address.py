@@ -4,6 +4,7 @@
 """Tests for address transaction, balance, and UTXO fetcher."""
 
 import random
+import socket
 import shutil
 import time
 import tempfile
@@ -61,6 +62,27 @@ class TestAddress(unittest.TestCase):
         self.addCleanup(shutil.rmtree, temp_dir, True)
         return f"sqlite:///{temp_dir / 'txcache.sqlite'}"
 
+    def _wait_for_mock_server(self, server, port, timeout=5):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not server.is_alive():
+                raise RuntimeError(f"Mock server exited before binding localhost:{port}")
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(0.1)
+                if sock.connect_ex(("localhost", port)) == 0:
+                    return
+
+            time.sleep(0.05)
+
+        raise RuntimeError(f"Mock server did not bind localhost:{port} within {timeout}s")
+
+    def _start_mock_server(self, responses, port):
+        server = multiprocessing.Process(target=spawn_server, args=[responses, port])
+        server.start()
+        self._wait_for_mock_server(server, port)
+        return server
+
     def test_000_btc_blockcypher_address(self):
         """Test fetching Bitcoin addresses with Blockcypher using mocked data."""
         port = gen_random_port()
@@ -74,13 +96,10 @@ class TestAddress(unittest.TestCase):
             base_url=f"http://localhost:{port}",
         )
         try:
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.BlockcypherTXHistoryResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.BlockcypherTXHistoryResponseManager,
+                port,
             )
-            server.start()
-            # A race condition prevents us from immediately querying the local server.
-            time.sleep(0.5)
             tx_history = client.get_transaction_history()
             exit_server(port)
             server.terminate()
@@ -93,12 +112,10 @@ class TestAddress(unittest.TestCase):
 
             # Each call for the utxo set or the balance also gets the transaction history.
             port = gen_random_port()
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.BlockcypherTXHistoryResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.BlockcypherTXHistoryResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client.base_url = f"http://localhost:{port}"
             utxos = client.get_utxos()
             exit_server(port)
@@ -109,12 +126,10 @@ class TestAddress(unittest.TestCase):
             )
 
             port = gen_random_port()
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.BlockcypherTXHistoryResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.BlockcypherTXHistoryResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client.base_url = f"http://localhost:{port}"
             balance = client.get_balance()
             exit_server(port)
@@ -122,12 +137,10 @@ class TestAddress(unittest.TestCase):
             self.assertEqual(balance, BitcoinMainUnit.BlockcypherExpectedBalance)
 
             port = gen_random_port()
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.BlockcypherHeightResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.BlockcypherHeightResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client.base_url = f"http://localhost:{port}"
             block_height = client.get_block_height()
             exit_server(port)
@@ -301,12 +314,10 @@ class TestAddress(unittest.TestCase):
         """Test fetching Bitcoin addresses with Blockstream using mocked data."""
         port = gen_random_port()
         try:
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.BlockstreamTXHistoryResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.BlockstreamTXHistoryResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client = BlockstreamClient(
                 [
                     "3KzZceAGsA7HRxFzgbZxVJMAV9TJa8o97V",
@@ -326,12 +337,10 @@ class TestAddress(unittest.TestCase):
 
             # Each call for the utxo set or the balance also gets the transaction history.
             port = gen_random_port()
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.BlockstreamUTXOResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.BlockstreamUTXOResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client.endpoint = f"http://localhost:{port}"
             utxos = client.get_utxos()
             exit_server(port)
@@ -342,12 +351,10 @@ class TestAddress(unittest.TestCase):
             )
 
             port = gen_random_port()
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.BlockstreamUTXOResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.BlockstreamUTXOResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client.endpoint = f"http://localhost:{port}"
             balance = client.get_balance()
             exit_server(port)
@@ -355,12 +362,10 @@ class TestAddress(unittest.TestCase):
             self.assertEqual(balance, BitcoinMainUnit.BlockstreamExpectedBalance)
 
             port = gen_random_port()
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.BlockstreamHeightResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.BlockstreamHeightResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client.endpoint = f"http://localhost:{port}"
             block_height = client.get_block_height()
             exit_server(port)
@@ -380,12 +385,10 @@ class TestAddress(unittest.TestCase):
         """Test fetching Bitcoin addresses with MempoolSpace using mocked data."""
         port = gen_random_port()
         try:
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.MempoolSpaceTXHistoryResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.MempoolSpaceTXHistoryResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client = MempoolSpaceClient(
                 [
                     "3KzZceAGsA7HRxFzgbZxVJMAV9TJa8o97V",
@@ -405,12 +408,10 @@ class TestAddress(unittest.TestCase):
 
             # Each call for the utxo set or the balance also gets the transaction history.
             port = gen_random_port()
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.MempoolSpaceUTXOResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.MempoolSpaceUTXOResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client.endpoint = f"http://localhost:{port}"
             utxos = client.get_utxos()
             exit_server(port)
@@ -421,12 +422,10 @@ class TestAddress(unittest.TestCase):
             )
 
             port = gen_random_port()
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.MempoolSpaceUTXOResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.MempoolSpaceUTXOResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client.endpoint = f"http://localhost:{port}"
             balance = client.get_balance()
             exit_server(port)
@@ -434,12 +433,10 @@ class TestAddress(unittest.TestCase):
             self.assertEqual(balance, BitcoinMainUnit.MempoolSpaceExpectedBalance)
 
             port = gen_random_port()
-            server = multiprocessing.Process(
-                target=spawn_server,
-                args=[BitcoinMainUnit.MempoolSpaceHeightResponseManager, port],
+            server = self._start_mock_server(
+                BitcoinMainUnit.MempoolSpaceHeightResponseManager,
+                port,
             )
-            server.start()
-            time.sleep(0.5)
             client.endpoint = f"http://localhost:{port}"
             block_height = client.get_block_height()
             exit_server(port)

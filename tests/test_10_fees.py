@@ -4,11 +4,17 @@
 """Tests for fee estimation."""
 
 import unittest
+from zpywallet.errors import NetworkException
 from zpywallet.fees.btc import BitcoinFeeEstimator
 from zpywallet.fees.ltc import LitecoinFeeEstimator
 from zpywallet.fees.dash import DashFeeEstimator
 from zpywallet.fees.doge import DogecoinFeeEstimator
 from zpywallet.fees.eth import EthereumFeeEstimator
+
+
+class FailingFeeProvider:
+    def get_fee_rate(self):
+        raise NetworkException("provider unavailable")
 
 
 class TestAddress(unittest.TestCase):
@@ -42,3 +48,15 @@ class TestAddress(unittest.TestCase):
         """Test estimating Ethereum fees."""
         b = EthereumFeeEstimator()
         # print(b.estimate_gas())
+
+    def test_005_ltc_fee_estimator_uses_minimum_relay_fallback(self):
+        """Litecoin fee estimation should stay usable when providers are down."""
+        b = LitecoinFeeEstimator(fullnode_endpoints=[], blockcypher_tokens=[])
+        b.provider_list = [FailingFeeProvider()]
+        self.assertEqual(b.get_fee_rate(), 1)
+
+    def test_006_dash_fee_estimator_uses_minimum_relay_fallback(self):
+        """Dash fee estimation should stay usable when providers are down."""
+        b = DashFeeEstimator(fullnode_endpoints=[], blockcypher_tokens=[])
+        b.provider_list = [FailingFeeProvider()]
+        self.assertEqual(b.get_fee_rate(), 1)

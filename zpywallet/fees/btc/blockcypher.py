@@ -31,7 +31,7 @@ class BlockcypherFeeEstimator:
 
         params = None
         if self.api_key:
-            params = {"token", self.api_key}
+            params = {"token": self.api_key}
 
         # Get the current fee rate from the specified API:
         for attempt in range(3, -1, -1):

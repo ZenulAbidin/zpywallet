@@ -41,5 +41,7 @@ class EthereumFeeEstimator:
             except NetworkException:
                 continue
 
-        # Return the median fee rate from all collected rates
+        if not fee_rates:
+            raise NetworkException("Failed to estimate gas from all providers")
+
         return median(fee_rates)

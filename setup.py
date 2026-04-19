@@ -33,26 +33,29 @@ setup(
     version=version,
     description="Multi-coin BIP32 (HD) wallet creation, transaction listener, creation and broadcasting",
     long_description=long_description,
+    long_description_content_type='text/x-rst',
     url='https://github.com/ZenulAbidin/pywallet',
     author='Ali Sherief',
     author_email='ali@notatether.com',
-    license='MIT License',
+    license='MIT',
     classifiers=[
-        "License :: OSI Approved :: MIT License",
         "Development Status :: 4 - Beta",
 
         "Intended Audience :: Developers",
         "Operating System :: OS Independent",
 
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
     ],
     platforms = ['any'],
     keywords='bitcoin, wallet, litecoin, hd-wallet, dogecoin, dashcoin, ethereum, address, crypto, python',
     packages = find_packages(exclude=['contrib', 'docs', 'tests', 'demo', 'demos', 'examples']),
     include_package_data=True,
-    install_requires=install_requires
+    exclude_package_data={"": ["__pycache__/*", "*.py[cod]"]},
+    install_requires=install_requires,
+    python_requires=">=3.10"
 )
