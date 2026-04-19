@@ -11,7 +11,7 @@ from ..destination import Destination
 from ..utils.base58 import b58decode_check, is_b58check
 from ..utils.keccak import to_checksum_address
 
-# Should really use list[] annotation directly but we still support Python 3.8 which does not have such syntax yet.
+# Keep the typing import until the module is migrated to builtin collection annotations consistently.
 from typing import List
 
 SIGHASH_ALL = 1

@@ -3,6 +3,11 @@ Installation
 
 To start using ZPyWallet, you can choose to install it either from PyPI using `pip` or from source using `setup.py`.
 
+Supported Python Versions
+-------------------------
+
+ZPyWallet currently supports CPython 3.10, 3.11, 3.12, 3.13, and 3.14.
+
 Installing from PyPI
 --------------------
 Follow the steps below to install ZPyWallet from PyPI using `pip`:

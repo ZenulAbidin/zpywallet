@@ -2,7 +2,7 @@ from statistics import median
 from .blockcypher import BlockcypherFeeEstimator
 from .fullnode import DogecoinRPCClient
 from ...errors import NetworkException
-from ...nodes.dash import dash_nodes
+from ...nodes.doge import doge_nodes
 
 
 class DogecoinFeeEstimator:
@@ -16,7 +16,7 @@ class DogecoinFeeEstimator:
     def __init__(self, **kwargs):
         self.provider_list = []
         fullnode_endpoints = kwargs.get("fullnode_endpoints") or []
-        fullnode_endpoints += dash_nodes
+        fullnode_endpoints += doge_nodes
         blockcypher_tokens = kwargs.get("blockcypher_tokens")
 
         tokens = blockcypher_tokens
@@ -47,5 +47,8 @@ class DogecoinFeeEstimator:
             except NetworkException:
                 continue
 
-        # Return the median fee rate from all collected rates
+        if not fee_rates:
+            return 1
+
+        # Fall back to the minimum relay fee when providers are unavailable.
         return median(fee_rates)

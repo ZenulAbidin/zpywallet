@@ -34,6 +34,11 @@ private key to an insecure server.
 
 **This is beta software. Only use it if you know what you're doing. There might be bugs.**
 
+Supported Python Versions
+=========================
+
+ZPyWallet currently supports CPython 3.10, 3.11, 3.12, 3.13, and 3.14.
+
 
 Features
 ========

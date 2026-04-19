@@ -61,16 +61,20 @@ class MyHandler(BaseHTTPRequestHandler):
         pass
 
 
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
+
 def spawn_server(responses, port):
     server_address = ("", port)
-    httpd = HTTPServer(server_address, MyHandler)
+    httpd = ReusableHTTPServer(server_address, MyHandler)
     httpd.response_manager = responses  # Set the response manager
     httpd.serve_forever()
 
 
 def exit_server(port):
     try:
-        requests.get(f"http://localhost:{port}/--internal/exit")
+        requests.post(f"http://localhost:{port}/--internal/exit", timeout=1)
     except Exception:
         pass
 

@@ -47,5 +47,8 @@ class LitecoinFeeEstimator:
             except NetworkException:
                 continue
 
-        # Return the median fee rate from all collected rates
+        if not fee_rates:
+            return 1
+
+        # Fall back to the minimum relay fee when providers are unavailable.
         return median(fee_rates)

@@ -1,6 +1,7 @@
-# It is imparative to use the latest coincurve version as it includes the latest security patches
-# for libsecp256k1.
-coincurve>=19.0.1
+# Coincurve 21.x works well through Python 3.13, but 3.14 currently requires the
+# pre-vendoring build path from 20.0.0 until upstream ships a fixed 21.x+ release.
+coincurve>=21.0.0; python_version < "3.14"
+coincurve==20.0.0; python_version >= "3.14"
 
 # Requests 2.20.1 fixes Auth stripping and <2.20.0 fails in certain Windows environments
 requests>=2.20.1
@@ -8,7 +9,7 @@ requests>=2.20.1
 # Protobuf <4.23.0 has a bug with Python repeated fields. And 4.24.0 has a segfaul in CopyFrom()
 protobuf>=4.23.0, !=4.24.0
 
-# Earliest release to include Python 3.8 wheels for all platforms.
+# Keep a conservative lower bound; newer interpreters will resolve newer wheels.
 pycryptodomex>=3.9.2
 
 # Latest stable version is 3.x, aiohttp is used by requests which by default pulls in a beta (and broken) version.
