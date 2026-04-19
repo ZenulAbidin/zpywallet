@@ -320,7 +320,7 @@ def create_transaction(
     # Inputs
     tx_bytes_1 += create_varint(len(inputs))
     tx_bytes_2_inputs = []
-    for num in range(inputs):
+    for num in range(len(inputs)):
         i = inputs[num]
         input_bytes_1 = input_bytes_2 = input_bytes_3 = b""
         input_bytes_1 += binascii.unhexlify(i.txid().encode())[::-1]
