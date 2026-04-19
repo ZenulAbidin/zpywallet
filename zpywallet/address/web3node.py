@@ -44,28 +44,69 @@ class Web3Client:
     but ensure it is turned off if you are running your own node.
     """
 
+    @staticmethod
+    def _normalize_web3_value(value, default=None):
+        if value is None:
+            return default
+        if isinstance(value, str):
+            if value.startswith("0x"):
+                return int(value, 16)
+            return value
+        if hasattr(value, "hex") and not isinstance(value, (bytes, bytearray)):
+            try:
+                hex_value = value.hex()
+                if isinstance(hex_value, str) and hex_value.startswith("0x"):
+                    return int(hex_value, 16)
+            except TypeError:
+                pass
+        return value
+
+    @staticmethod
+    def _normalize_web3_hash(value):
+        if isinstance(value, bytes):
+            return value.hex()
+        if hasattr(value, "hex") and not isinstance(value, str):
+            try:
+                return value.hex()
+            except TypeError:
+                pass
+        return value
+
     def _clean_tx(self, element, block):
         new_element = wallet_pb2.Transaction()
-        new_element.txid = element["hash"]
-        if "blockNumber" in element.keys():
+        new_element.txid = self._normalize_web3_hash(element["hash"])
+        block_number = self._normalize_web3_value(element.get("blockNumber"))
+        if block_number is not None:
             new_element.confirmed = True
-            new_element.height = element["blockNumber"]
+            new_element.height = block_number
         else:
             new_element.confirmed = False
+            new_element.height = 0
 
-        new_element.ethlike_transaction.txfrom = element["from"]
-        new_element.ethlike_transaction.txto = element["to"]
-        new_element.ethlike_transaction.amount = int(element["value"])
+        new_element.ethlike_transaction.txfrom = to_checksum_address(element["from"])
+        tx_to = element.get("to")
+        new_element.ethlike_transaction.txto = (
+            to_checksum_address(tx_to) if tx_to else ""
+        )
+        new_element.ethlike_transaction.amount = int(
+            self._normalize_web3_value(element["value"], 0)
+        )
 
-        new_element.timestamp = int(block["timestamp"], 16)
-        new_element.ethlike_transaction.data = element["input"]
+        new_element.timestamp = int(self._normalize_web3_value(block["timestamp"], 0))
+        new_element.ethlike_transaction.data = bytes.fromhex(
+            (element.get("input") or "0x")[2:]
+        )
 
-        gas = int(element["gas"], 16)
+        gas = int(self._normalize_web3_value(element["gas"], 0))
         new_element.ethlike_transaction.gas = gas
         if "maxFeePerGas" in element.keys():
-            new_element.total_fee = int(element["maxFeePerGas"], 16) * gas
+            new_element.total_fee = (
+                int(self._normalize_web3_value(element["maxFeePerGas"], 0)) * gas
+            )
         else:
-            new_element.total_fee = int(element["gasPrice"]) * gas
+            new_element.total_fee = (
+                int(self._normalize_web3_value(element["gasPrice"], 0)) * gas
+            )
 
         new_element.fee_metric = wallet_pb2.WEI
         return new_element
@@ -175,17 +216,26 @@ class Web3Client:
 
             # Web3.py stores unconfirmed ETH transactions in "pending".
             max_height = self.get_block_height()
-            for block_number in list(range(self.height, max_height + 1)) + [
+            for block_number in list(range(self.height + 1, max_height + 1)) + [
                 "pending"
             ]:
-                block = self.web3.eth.getBlock(block_number, full_transactions=True)
+                get_block = getattr(self.web3.eth, "get_block", None)
+                if get_block is None:
+                    get_block = self.web3.eth.getBlock
+                block = get_block(block_number, full_transactions=True)
 
                 if not block or "transactions" not in block:
                     continue
                 transactions = block["transactions"]
 
-                for tx_hash in transactions:
-                    transaction = self.web3.eth.getTransaction(tx_hash)
+                for tx in transactions:
+                    if isinstance(tx, dict):
+                        transaction = tx
+                    else:
+                        get_transaction = getattr(self.web3.eth, "get_transaction", None)
+                        if get_transaction is None:
+                            get_transaction = self.web3.eth.getTransaction
+                        transaction = get_transaction(tx)
 
                     parsed_transaction = self._clean_tx(transaction, block)
                     sql_transaction_storage.store_transaction(parsed_transaction)

@@ -378,6 +378,24 @@ def create_transaction(
 def create_web3_transaction(
     a_from, a_to, amount, private_key, fullnodes, gas, chain_id
 ):
+    def add_web3_cache_middleware(middleware_onion):
+        for middleware_name in (
+            "time_based_cache_middleware",
+            "latest_block_based_cache_middleware",
+            "simple_cache_middleware",
+        ):
+            middleware_factory = getattr(web3.middleware, middleware_name, None)
+            if middleware_factory is not None:
+                middleware_onion.add(middleware_factory)
+
+    def normalize_private_key(key):
+        if isinstance(key, bytes):
+            return key
+        if isinstance(key, str):
+            key = key[2:] if key.startswith("0x") else key
+            return bytes.fromhex(key)
+        return bytes(key)
+
     sender_address = a_from
     receiver_address = a_to
     # All amounts are in WEI not Ether
@@ -388,17 +406,18 @@ def create_web3_transaction(
             w3 = web3.Web3(web3.HTTPProvider(node["url"]))
             # This makes it fetch max<priority>feepergas info faster
             w3.eth.set_gas_price_strategy(fast_gas_price_strategy)
-            w3.middleware_onion.add(web3.middleware.time_based_cache_middleware)
-            w3.middleware_onion.add(web3.middleware.latest_block_based_cache_middleware)
-            w3.middleware_onion.add(web3.middleware.simple_cache_middleware)
+            add_web3_cache_middleware(w3.middleware_onion)
 
-            nonce = w3.eth.getTransactionCount(to_checksum_address(sender_address))
+            nonce_method = getattr(w3.eth, "get_transaction_count", None)
+            if nonce_method is None:
+                nonce_method = w3.eth.getTransactionCount
+            nonce = nonce_method(to_checksum_address(sender_address))
 
             # Build the transaction dictionary
             transaction = {
                 "nonce": nonce,
                 "to": to_checksum_address(receiver_address),
-                "value": w3.toWei(amount, "ether"),  # Sending 1 ether, adjust as needed
+                "value": int(amount),
                 # 'gas': gas,#21000,  # Gas limit
                 # Since the London hard work (EIP-1559), nobody uses gasPrice anymore. They use max<Priority>FeePerGas
                 # Which is automatically specified (somehow) in Web3.
@@ -412,7 +431,10 @@ def create_web3_transaction(
             transaction["gas"] = gas
 
             # Sign the transaction
-            return w3.eth.account.signTransaction(transaction, bytes(private_key))
+            sign_method = getattr(w3.eth.account, "sign_transaction", None)
+            if sign_method is None:
+                sign_method = w3.eth.account.signTransaction
+            return sign_method(transaction, normalize_private_key(private_key))
         except Exception:
             pass
     raise RuntimeError("Cannot sign web3 transaction (try specifying different nodes)")

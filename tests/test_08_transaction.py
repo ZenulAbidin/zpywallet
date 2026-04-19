@@ -4,6 +4,7 @@
 """Tests for creating signed transactions."""
 
 import unittest
+from unittest.mock import patch
 from zpywallet.address import CryptoClient
 from zpywallet.destination import Destination
 from zpywallet.network import (
@@ -16,6 +17,7 @@ from zpywallet.network import (
 from zpywallet.transactions.encode import (
     SIGHASH_ALL,
     assemble_segwit_payload,
+    create_web3_transaction,
     create_signatures_legacy,
     create_signatures_segwit,
     create_transaction,
@@ -273,37 +275,53 @@ class TestAddress(unittest.TestCase):
                 )
 
     def test_005_eth_sign(self):
-        return
-        """Test creating EVM Ethereum transactions"""
-        b = CryptoClient(["0xd73e8e2ac0099169e7404f23c6caa94cf1884384"], coin="ETH")
+        """Test creating EVM Ethereum transactions."""
 
-        destinations = [
-            Destination(
+        class FakeMiddlewareOnion:
+            def add(self, _middleware):
+                return None
+
+        class FakeAccount:
+            def __init__(self):
+                self.last_transaction = None
+                self.last_private_key = None
+
+            def sign_transaction(self, transaction, private_key):
+                self.last_transaction = transaction
+                self.last_private_key = private_key
+                return {"raw_transaction": b"signed"}
+
+        class FakeEth:
+            def __init__(self):
+                self.account = FakeAccount()
+
+            def set_gas_price_strategy(self, _strategy):
+                return None
+
+            def get_transaction_count(self, _address):
+                return 7
+
+            def estimate_gas(self, transaction):
+                self.last_estimate = transaction
+                return 21000
+
+        class FakeWeb3:
+            def __init__(self, _provider):
+                self.eth = FakeEth()
+                self.middleware_onion = FakeMiddlewareOnion()
+
+        with patch("zpywallet.transactions.encode.web3.Web3", FakeWeb3):
+            signed = create_web3_transaction(
+                "0xd73e8e2ac0099169e7404f23c6caa94cf1884384",
                 "0xea83c649dd49a6ec44c9e2943eb673a8fbb7bab6",
-                0.00000002,
-                EthereumMainNet,
+                20,
+                "0x" + "11" * 32,
+                [{"url": "https://example.invalid"}],
+                None,
+                EthereumMainNet.CHAIN_ID,
             )
-        ]
 
-        utxos = []
-        _u = UTXO(None, None, _internal_param_do_not_use={"amount": b.get_balance()[0]})
-        _u._output["address"] = "0xd73e8e2ac0099169e7404f23c6caa94cf1884384"
-        _u._output["private_key"] = (
-            "0x0000000000000000000000000000000000000000000000000000000000000001"
-        )
-        utxos.append(_u)
-        # There seems to be a bug where the stock ETH nodes do not allow connections from inside the Github Actions runner or at least from Tox
-        try:
-            create_transaction(
-                utxos,
-                destinations,
-                network=EthereumMainNet,
-                full_nodes=eth_nodes,
-                gas=1,
-                gasPrice=1,
-            )
-        except RuntimeError as e:
-            pass
+        self.assertEqual(signed["raw_transaction"], b"signed")
 
     def test_006_internal_legacy_sign(self):
         # This test case tests the internal signing methods to make sure that

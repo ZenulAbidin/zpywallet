@@ -635,6 +635,39 @@ class Wallet:
         Returns:
             Transaction: The created transaction.
         """
+        fullnode_endpoints = self._add_stock_nodes()
+
+        if self._network.SUPPORTS_EVM:
+            if not destinations:
+                raise ValueError("Must specify at least one destination")
+
+            sender_address = kwargs.pop("from_address", None) or self.addresses()[0]
+            addresses = self.addresses()
+            try:
+                sender_index = addresses.index(sender_address)
+            except ValueError as e:
+                raise ValueError("from_address does not belong to this wallet") from e
+
+            private_key = self.private_keys(password)[sender_index]
+            pseudo_input = UTXO(
+                None,
+                None,
+                _internal_param_do_not_use={
+                    "address": sender_address,
+                    "private_key": private_key,
+                    "amount": 0,
+                    "height": 0,
+                },
+                _network=self._network,
+            )
+            return create_transaction(
+                [pseudo_input],
+                destinations,
+                network=self._network,
+                full_nodes=fullnode_endpoints,
+                **kwargs,
+            )
+
         inputs = self.get_utxos(only_unspent=True)
 
         if not spend_unconfirmed_inputs:
@@ -647,19 +680,6 @@ class Wallet:
         private_keys = self.private_keys(password)
 
         inputs = self._to_human_friendly_utxo(inputs, private_keys)
-
-        fullnode_endpoints = self._add_stock_nodes()
-
-        if self._network.SUPPORTS_EVM:
-            # Note: On EVM chains we do NOT need to estimate the fee.
-            # Web3.py does all the heavy lifting for us.
-            create_transaction(
-                inputs,
-                destinations,
-                network=self._network,
-                full_nodes=fullnode_endpoints,
-                **kwargs,
-            )
 
         # Depending on the size of the transactions, we may need to add a
         # change output. Otherwise, the remaining balance is going to the miner.

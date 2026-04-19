@@ -17,6 +17,7 @@ from zpywallet.address import (
     BlockstreamClient,
     MempoolSpaceClient,
     SQLTransactionStorage,
+    Web3Client,
 )
 from zpywallet.address.fullnode import RPCClient
 from zpywallet.errors import NetworkException
@@ -240,6 +241,58 @@ class TestAddress(unittest.TestCase):
         history = client.get_transaction_history()
         self.assertEqual([tx.txid for tx in history], ["tx-1", "tx-2"])
         self.assertTrue(client.mempool_read)
+
+        storage = SQLTransactionStorage(db_uri)
+        self.assertEqual(storage.get_block_height(), 2)
+
+    def test_0004_web3_client_reads_blocks_into_cache(self):
+        """Test that the web3 reader stores full transaction objects in sqlite."""
+
+        class FakeEth:
+            block_number = 2
+
+            def __init__(self):
+                self.calls = []
+
+            def get_block(self, block_number, full_transactions=True):
+                self.calls.append((block_number, full_transactions))
+                if block_number == "pending":
+                    return {"transactions": []}
+                return {
+                    "timestamp": 123456 + block_number,
+                    "transactions": [
+                        {
+                            "hash": bytes.fromhex(f"{block_number:064x}"),
+                            "blockNumber": block_number,
+                            "from": "0xd73e8e2ac0099169e7404f23c6caa94cf1884384",
+                            "to": "0xea83c649dd49a6ec44c9e2943eb673a8fbb7bab6",
+                            "value": 25,
+                            "input": "0x1234",
+                            "gas": 21000,
+                            "gasPrice": 3,
+                        }
+                    ],
+                }
+
+        class FakeWeb3:
+            def __init__(self):
+                self.eth = FakeEth()
+
+        db_uri = self._sqlite_uri()
+        client = Web3Client(
+            ["0xd73e8e2ac0099169e7404f23c6caa94cf1884384"],
+            coin="ETH",
+            chain="main",
+            db_connection_parameters=db_uri,
+            url="https://example.invalid",
+        )
+        client.web3 = FakeWeb3()
+        client.read_mempool()
+
+        history = client.get_transaction_history()
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0].ethlike_transaction.amount, 25)
+        self.assertEqual(history[0].ethlike_transaction.data, bytes.fromhex("1234"))
 
         storage = SQLTransactionStorage(db_uri)
         self.assertEqual(storage.get_block_height(), 2)

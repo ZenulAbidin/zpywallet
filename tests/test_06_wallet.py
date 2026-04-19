@@ -5,9 +5,11 @@
 
 
 import unittest
+from unittest.mock import patch
 from zpywallet.generated import wallet_pb2
 from zpywallet import Wallet
-from zpywallet.network import BitcoinSegwitMainNet
+from zpywallet.destination import Destination
+from zpywallet.network import BitcoinSegwitMainNet, EthereumMainNet
 
 
 class TestWallet(unittest.TestCase):
@@ -95,3 +97,29 @@ class TestWallet(unittest.TestCase):
             utxos.append(utxo)
 
         wallet._to_human_friendly_utxo(utxos, [])
+
+    def test_005_eth_wallet_create_transaction(self):
+        wallet = Wallet(
+            EthereumMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1,
+        )
+
+        destinations = [
+            Destination(
+                "0xea83c649dd49a6ec44c9e2943eb673a8fbb7bab6",
+                0.00000002,
+                EthereumMainNet,
+            )
+        ]
+
+        with patch("zpywallet.wallet.create_transaction", return_value=b"signed") as tx:
+            signed = wallet.create_transaction("zpywallet", destinations, gas=21000)
+
+        self.assertEqual(signed, b"signed")
+        args, kwargs = tx.call_args
+        self.assertEqual(args[0][0].address(), wallet.addresses()[0])
+        self.assertEqual(args[1], destinations)
+        self.assertEqual(kwargs["network"], EthereumMainNet)
+        self.assertIn("full_nodes", kwargs)
