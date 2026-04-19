@@ -194,14 +194,22 @@
 - `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' '@pytest\\.mark\\.skip|xfail|skip\\(|TODO|FIXME|XXX|HACK|NotImplemented|not implemented|pass$' zpywallet tests docs README.rst` -> reviewed; remaining hits are abstract-base guards, provider retry/failover branches, internal notes, or test scaffolding rather than a newly justified in-scope blocker
 - `./.venv/bin/python -m tox` -> started during the final audit; local `py310` skipped because that interpreter is not installed in this container, and the duplicate `py311` rerun was intentionally stopped because the exact same clean tree already has a recorded green full-suite pass in this progress log
 - `./.venv/bin/python -m pytest tests -q` -> duplicate full-suite rerun started during the final audit and then stopped intentionally for the same reason: the clean tree was already fully validated earlier in this progress log and no source files changed during the audit
+- `git status --short --branch` -> current tree is still clean before and after this iteration's validation pass (`ahead 14`)
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed on the current tree; hits are abstract-base guards, provider retry/cache fallbacks, comments, or test scaffolding rather than a newly justified in-scope blocker
+- `./.venv/bin/python -m pytest tests -q` -> success on the current tree (`127 passed, 1 warning in 628.53s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the current tree (`flake8: OK`)
+- `./.venv/bin/python -m tox -e docs` -> success on the current tree (`docs: OK`)
+- `ps -eo pid,etime,pcpu,pmem,args | grep '[p]ytest tests -q'` -> confirmed the long-running full-suite process stayed CPU-bound during the audit rather than hanging
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current tree; release artifacts still build and pass metadata validation cleanly
 
 ## Current Iteration Summary
-- Chosen task: perform a final completion audit on the clean baseline and verify that no supported-flow gap remains in the current repository scope.
-- In-scope evidence: the repository is a Python library validated through `tox`, `pytest`, docs, and release packaging, so confirming the repo-native workflow, supported surface, and remaining unfinished-work signals is the last justified task before declaring completion.
+- Chosen task: re-verify the current tree end to end and decide whether any additional in-scope work remains.
+- In-scope evidence: this repository's product is a distributable Python wallet library, so the highest-value remaining task after the earlier fixes was a fresh pass over tests, lint, docs, packaging, and unfinished-work markers on the actual current tree.
 - Changes made:
-- created the required session baseline commit for the already-pending tracked changes, then re-read README, packaging, CI, requirements, tests, and unfinished-work markers directly from the repo
-- confirmed that the current clean tree still matches the previously recorded green full-suite, lint, docs, and build validations, and that no new in-scope defect surfaced during the source audit
-- left the repository source untouched after the baseline because the audit did not uncover a justified fix beyond environment-only matrix limitations
+- re-read README, packaging metadata, tox configuration, CI workflows, requirements, and the existing progress log to confirm the intended product scope and repo-native workflow
+- reran the current high-signal validations on the live tree: full `pytest`, `tox -e flake8`, `tox -e docs`, release build, and distribution metadata checks
+- reviewed unfinished-work markers again and confirmed that the remaining hits are notes, abstract guards, or conservative fallbacks rather than broken supported flows
+- left the repository source untouched because the current tree already satisfies the repository's justified scope and validation bar
 - Remaining work: none in scope beyond the already documented out-of-scope polish and local environment limitations around unavailable Python interpreters for the full CI matrix.
 
 ## Unresolved Blockers
