@@ -443,6 +443,7 @@ class Wallet:
                             addresses=addresses,
                             other_transactions=transactions,
                             only_mine=True,
+                            only_unspent=only_unspent,
                         )
                     )
                 except ValueError:

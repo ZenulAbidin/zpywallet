@@ -670,8 +670,10 @@ class PublicKey:
         if hashonly:
             # Only public key hash is available, disables a lot of functionality
             # Use ripe_compressed so that they work with default named args
+            self.ripe = ckey
             self.ripe_compressed = ckey
             self.hashonly = True
+            return
 
         # Keccak-256 for Ethereum
         if "HEX" in network.ADDRESS_MODE:

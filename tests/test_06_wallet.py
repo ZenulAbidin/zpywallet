@@ -15,6 +15,7 @@ from zpywallet.address.cache import SQLTransactionStorage
 from zpywallet.destination import Destination, FeePolicy
 from zpywallet.broadcast.btc import all as btc_broadcast_all
 from zpywallet.network import BitcoinSegwitMainNet, EthereumMainNet
+from zpywallet.transaction import Transaction
 from zpywallet.utxo import UTXO
 
 
@@ -348,6 +349,46 @@ class TestWallet(unittest.TestCase):
 
         self.assertIsNotNone(change)
         self.assertEqual(change.amount(in_standard_units=False), 50)
+
+    def test_012_wallet_get_utxos_can_include_spent_outputs(self):
+        wallet = Wallet(
+            BitcoinSegwitMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1,
+        )
+        address = wallet.addresses()[0]
+
+        tx = wallet_pb2.Transaction(
+            txid="tx1",
+            timestamp=1,
+            confirmed=True,
+            height=1,
+            fee_metric=wallet_pb2.FeeMetric.Value("BYTE"),
+        )
+        spent_output = tx.btclike_transaction.outputs.add()
+        spent_output.address = address
+        spent_output.index = 0
+        spent_output.amount = 100
+        spent_output.spent = True
+
+        unspent_output = tx.btclike_transaction.outputs.add()
+        unspent_output.address = address
+        unspent_output.index = 1
+        unspent_output.amount = 200
+        unspent_output.spent = False
+
+        with patch.object(
+            wallet,
+            "get_transaction_history",
+            return_value=[Transaction(tx, BitcoinSegwitMainNet)],
+        ):
+            utxos = wallet.get_utxos(only_unspent=False)
+
+        self.assertEqual(
+            [(u.index(), u.amount(False), u.spent()) for u in utxos],
+            [(0, 100, True), (1, 200, False)],
+        )
 
     def test_006_wallet_broadcast_runs_providers_concurrently(self):
         async def blocking_provider(*args, **kwargs):

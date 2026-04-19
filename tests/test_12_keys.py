@@ -106,3 +106,18 @@ class TestKey(unittest.TestCase):
             script,
             bytes.fromhex("a914b472a266d0bd89c13706a4132ccfb16f7c3b9fcb87"),
         )
+
+    def test_005_from_address_round_trips_hash_only_addresses(self):
+        legacy = PublicKey.from_address(
+            "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH", BitcoinSegwitMainNet
+        )
+        segwit = PublicKey.from_address(
+            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", BitcoinSegwitMainNet
+        )
+
+        expected_hash = bytes.fromhex("751e76e8199196d454941c45d1b3a323f1433bd6")
+
+        self.assertTrue(legacy.hashonly)
+        self.assertTrue(segwit.hashonly)
+        self.assertEqual(legacy.hash160(), expected_hash)
+        self.assertEqual(segwit.hash160(), expected_hash)

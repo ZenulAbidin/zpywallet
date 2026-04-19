@@ -19,6 +19,7 @@ class UTXO:
         other_transactions=None,
         addresses=None,
         only_mine=False,
+        only_unspent=True,
         _internal_param_do_not_use=None,
         _network=None,
     ):
@@ -39,14 +40,15 @@ class UTXO:
             addresses = []
         if _internal_param_do_not_use:
             self._output = _internal_param_do_not_use
-            self.network = _network
+            self._output.setdefault("spent", False)
+            self._network = _network
             return
 
         if transaction.network().SUPPORTS_EVM:
             raise ValueError("Blockchain does not support UTXOs")
 
         self._network = transaction.network()
-        outputs = transaction.sat_outputs(only_unspent=True)
+        outputs = transaction.sat_outputs(only_unspent=only_unspent)
         try:
             output = outputs[index]
         except IndexError:
@@ -61,10 +63,11 @@ class UTXO:
         except PublicKeyHashException:
             output["address_hash"] = None
 
-        for ot in other_transactions:
-            for i in ot.sat_inputs():
-                if i["txid"] == transaction.txid() and i["index"] == index:
-                    raise ValueError("UTXO has already been spent")
+        if only_unspent:
+            for ot in other_transactions:
+                for i in ot.sat_inputs():
+                    if i["txid"] == transaction.txid() and i["index"] == output["index"]:
+                        raise ValueError("UTXO has already been spent")
 
         if only_mine and output["address"] not in addresses:
             raise ValueError("UTXO does not belong to this wallet")
@@ -120,6 +123,12 @@ class UTXO:
         Returns the block height of the UTXO.
         """
         return self._output["height"]
+
+    def spent(self):
+        """
+        Returns whether this transaction output has already been spent.
+        """
+        return self._output.get("spent", False)
 
     # Private methods, do not use in user programs.
     def _private_key(self):
