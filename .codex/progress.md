@@ -209,16 +209,23 @@
 - `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current committed tree
 - `git status --short --branch` -> clean worktree after the validation commands completed (`ahead 15`)
 - `./.venv/bin/python -m tox -e docs` -> success on a clean rerun (`docs: OK`), confirming the earlier failure was validation contention rather than a source regression
+- `sed -n '1,260p' AGENTS.md && sed -n '1,220p' README.rst && sed -n '1,220p' tox.ini && sed -n '1,220p' setup.py && sed -n '1,220p' setup.cfg && find .github/workflows -maxdepth 1 -type f -print -exec sed -n '1,220p' '{}' ';'` -> reviewed on the current tree; reconfirmed project identity, supported workflow, and CI-native commands directly from repository evidence
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed again on the current tree; remaining hits are abstract/fallback scaffolding or comments, not a newly justified in-scope blocker
+- `ps -eo pid,etime,pcpu,pmem,args | grep '[p]ytest tests -q'` -> confirmed during this iteration that the long full-suite run stayed CPU-bound rather than hanging
+- `./.venv/bin/python -m pytest tests -q` -> success on the current tree (`127 passed, 1 warning in 588.46s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the current tree (`flake8: OK`)
+- `./.venv/bin/python -m tox -e docs` -> success on the current tree (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current tree; release artifacts still build and pass metadata validation cleanly
+- `git status --short --branch` -> clean worktree before updating this progress file (`ahead 16`)
 
 ## Current Iteration Summary
-- Chosen task: perform a fresh completion audit on the currently committed tree and decide whether any justified source work remains.
-- In-scope evidence: the repository itself defines a packaged Python wallet library with repo-native validation through `pytest`, `tox`, Sphinx, and release builds, so the only high-value remaining task was to verify that those flows still pass on the live tree before declaring completion.
+- Chosen task: independently re-audit the current tree and verify that no new in-scope implementation work remains.
+- In-scope evidence: the repository is a packaged Python wallet library, so the highest-value remaining work after the earlier fixes was to confirm supported library flows and release-validation gates still pass on the live source tree.
 - Changes made:
-- re-read the repository evidence (`README.rst`, packaging metadata, `tox.ini`, GitHub workflows, and the existing progress log) to confirm the intended scope and native developer workflow
-- created the required one-time baseline commit because the inherited worktree was dirty only from `.codex/progress.md`
+- re-read the repository evidence (`AGENTS.md`, `README.rst`, packaging metadata, `tox.ini`, and GitHub workflows) to confirm the intended scope and native development workflow directly from source
+- re-checked unfinished-work markers in tracked source and verified that the remaining hits are abstract guards, provider fallbacks, or comments rather than supported-flow gaps
 - reran the high-signal validations on the live tree: full `pytest`, `tox -e flake8`, `tox -e docs`, and release build plus `twine check`
-- confirmed that the single docs failure in this turn was self-inflicted by running docs and package-build validations concurrently against the same worktree; the clean rerun passed
-- left repository source files unchanged because no new in-scope defect or missing supported flow was exposed by the current audit
+- left repository source files unchanged because the current audit did not expose any new broken core flow, missing supported feature, or validation failure
 - Remaining work: none in scope beyond the already documented out-of-scope polish and environment limitations around unavailable extra Python interpreters for the full CI matrix.
 
 ## Unresolved Blockers
