@@ -761,7 +761,7 @@ class Wallet:
         Args:
             transaction: The transaction to broadcast.
         """
-        broadcast_transaction(transaction, self._network)
+        return broadcast_transaction(transaction, self._network)
 
     def serialize(self):
         """

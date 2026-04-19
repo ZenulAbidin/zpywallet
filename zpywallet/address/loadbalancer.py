@@ -152,9 +152,9 @@ class CryptoClient(AddressProvider):
                 provider.read_mempool()
                 return
             except NetworkException:
-                pass
+                continue
 
-            raise NetworkException("Failed to populate database - all providers failed")
+        raise NetworkException("Failed to populate database - all providers failed")
 
     def get_balance(self):
         for provider in self.cache_provider_list:

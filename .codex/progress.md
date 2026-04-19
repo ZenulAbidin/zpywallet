@@ -53,6 +53,9 @@
 - `done` `security/validation/data integrity issue`: store `Destination` values internally as integer sats/wei, add explicit raw-unit support, and keep wallet change calculation in base units end to end.
 - `done` `developer experience issue affecting completion`: align the public docs with the current API surface (`sat_feerate()`, `CryptoClient`, raw-unit destination examples, and the updated limitations text).
 - `done` `test/build/lint/type failure`: revalidate the current tree end to end with focused wallet/EVM tests, full `pytest`, repo-native `tox` lint/docs, and the release build metadata checks.
+- `done` `broken flow`: make `CryptoClient.initialize_database()` actually fail over across cache providers instead of aborting after the first transient backend error.
+- `done` `broken flow`: make `Wallet.broadcast_transaction()` return the underlying provider results instead of silently discarding the broadcast outcome.
+- `done` `developer experience issue affecting completion`: fix the usage guide examples so `CryptoClient.get_balance()` and `BitcoinSegwitMainNet` are shown with the actual current API names.
 - `out_of_scope` `polish`: wallet construction still spends several seconds deriving default-gap addresses, but reducing that further now would require a larger wallet-state redesign or protobuf persistence change than the current repository evidence justifies.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
@@ -151,15 +154,24 @@
 - `./.venv/bin/python -m pytest tests -q` -> success on the current tree (`123 passed, 1 warning in 506.42s`)
 - `./.venv/bin/python -m build` -> success on the current tree
 - `./.venv/bin/python -m twine check dist/*` -> success on the current tree
+- `./.venv/bin/python -m pytest tests/test_09_address.py -k 'initialize_database_fails_over_cache_providers or web3_client_reads_blocks_into_cache' -q` -> success after the cache-provider failover fix (`2 passed, 6 deselected, 1 warning in 2.51s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/address/loadbalancer.py tests/test_09_address.py` -> success after the cache-provider failover fix
+- `./.venv/bin/python -m pytest tests/test_09_address.py -q` -> success after the cache-provider failover fix (`8 passed, 1 warning in 4.56s`)
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py -k 'test_003b_wallet_broadcast_returns_provider_results or test_005_eth_wallet_create_transaction or test_006_wallet_create_transaction_executes_btc_flow' -q` -> success after the wallet-broadcast return fix (`3 passed, 12 deselected, 1 warning in 189.66s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/wallet.py tests/test_06_wallet.py` -> success after the wallet-broadcast return fix
+- `./.venv/bin/python -m tox -e docs` -> success after the usage-guide example fix
 
 ## Current Iteration Summary
-- Chosen task: verify whether any justified in-scope work remained after the wallet/EVM/docs fixes.
-- In-scope evidence: this is a library repo, so current-scope completeness requires repo-native validation of the package, docs, and runtime flows, not just source edits.
+- Chosen task: continue source-level auditing of core wallet/address flows and fix concrete wrapper/failover defects that remained after the earlier wallet/EVM work.
+- In-scope evidence: this repo is a developer-facing wallet library, so shared provider failover and the public `Wallet.broadcast_transaction()` wrapper are part of the intended core send/history workflows.
 - Changes made:
-- no product code changes were needed in this iteration
-- created the required baseline commit for the existing in-flight patchset before further autonomous work
-- revalidated the focused wallet/EVM/broadcast flows, full test suite, lint, docs, and release build metadata on the exact current tree
-- Remaining work: no new broken core flows or in-scope unfinished product work were found after the full validation pass.
+- moved the `NetworkException` raise out of the per-provider loop so initialization now retries all configured cache backends
+- added a regression test covering first-provider failure followed by second-provider success
+- returned the underlying broadcast result from `Wallet.broadcast_transaction()` instead of dropping it
+- added a wallet regression test proving the wrapper now surfaces provider results
+- corrected the usage guide to reference `address_client.get_balance()` and the actual `BitcoinSegwitMainNet` class name
+- reran the focused address-provider and wallet validations plus lint, then the repo-native docs build for the usage-guide change
+- Remaining work: continue scanning for any other source-level broken flows before considering the current scope complete.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.

@@ -319,6 +319,34 @@ class TestAddress(unittest.TestCase):
         storage = SQLTransactionStorage(db_uri)
         self.assertEqual(storage.get_block_height(), 2)
 
+    def test_0005_crypto_client_initialize_database_fails_over_cache_providers(self):
+        """Test that database initialization keeps trying cache providers after a failure."""
+
+        class FailingProvider:
+            def __init__(self):
+                self.calls = 0
+
+            def read_mempool(self):
+                self.calls += 1
+                raise NetworkException("first provider failed")
+
+        class SucceedingProvider:
+            def __init__(self):
+                self.calls = 0
+
+            def read_mempool(self):
+                self.calls += 1
+
+        client = CryptoClient.__new__(CryptoClient)
+        first = FailingProvider()
+        second = SucceedingProvider()
+        client.cache_provider_list = [first, second]
+
+        client.initialize_database()
+
+        self.assertEqual(first.calls, 1)
+        self.assertEqual(second.calls, 1)
+
     def test_001_btc_blockstream_address(self):
         """Test fetching Bitcoin addresses with Blockstream using mocked data."""
         port = gen_random_port()

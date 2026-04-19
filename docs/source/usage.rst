@@ -123,17 +123,17 @@ ZPyWallet has built-in support for fetching transaction history of addresses:
     )
 
     # ...Then you can call get_transaction_history(), get_utxos() and get_balance() like for a wallet
-    
-    total_balance, confirmed_balance = wallet.get_balance() # On Ethereum these two values are identical
+
+    total_balance, confirmed_balance = address_client.get_balance()
 
     # Send coins to an address
     # Change output is automatically calculated by the wallet
     address1 = "..."
     address2 = "..."
-    destinations = [Destination(address1, 0.1, BitcoinSegWitMainNet), Destination(address2, 0.2, BitcoinSegWitMainNet)] # Amounts are in BTC
+    destinations = [Destination(address1, 0.1, BitcoinSegwitMainNet), Destination(address2, 0.2, BitcoinSegwitMainNet)] # Amounts are in BTC
 
     # Or specify raw units directly:
-    destinations = [Destination(address1, 10000000, BitcoinSegWitMainNet, in_standard_units=False)] # 0.1 BTC in sats
+    destinations = [Destination(address1, 10000000, BitcoinSegwitMainNet, in_standard_units=False)] # 0.1 BTC in sats
 
     # If you want to spend unconfirmed inputs, pass spend_unconfirmed_inputs=True
     fee_rate = 1 # sat/vbyte for Segwit network (for legacy networks it is in sat/byte)
