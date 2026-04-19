@@ -1,4 +1,4 @@
-# $Id: __init__.py 9037 2022-03-05 23:31:10Z milde $
+# $Id: __init__.py 9541 2024-02-17 10:37:13Z milde $
 # Author: David Goodger <goodger@python.org>
 # Copyright: This module has been placed in the public domain.
 
@@ -49,9 +49,7 @@ class Writer(html4css1.Writer):
 
     settings_default_overrides = {'stylesheet_path': default_stylesheet_path,
                                   'template': default_template_path}
-
     relative_path_settings = ('template',)
-
     config_section = 'pep_html writer'
     config_section_dependencies = ('writers', 'html writers',
                                    'html4css1 writer')

@@ -34,7 +34,7 @@ setup(
     description="Multi-coin BIP32 (HD) wallet creation, transaction listener, creation and broadcasting",
     long_description=long_description,
     long_description_content_type='text/x-rst',
-    url='https://github.com/ZenulAbidin/pywallet',
+    url='https://github.com/ZenulAbidin/zpywallet',
     author='Ali Sherief',
     author_email='ali@notatether.com',
     license='MIT',
@@ -54,7 +54,11 @@ setup(
     platforms = ['any'],
     keywords='bitcoin, wallet, litecoin, hd-wallet, dogecoin, dashcoin, ethereum, address, crypto, python',
     packages = find_packages(exclude=['contrib', 'docs', 'tests', 'demo', 'demos', 'examples']),
-    include_package_data=True,
+    include_package_data=False,
+    package_data={
+        "zpywallet.mnemonic": ["py.typed"],
+        "zpywallet.mnemonic.wordlist": ["*.txt"],
+    },
     exclude_package_data={"": ["__pycache__/*", "*.py[cod]"]},
     install_requires=install_requires,
     python_requires=">=3.10"

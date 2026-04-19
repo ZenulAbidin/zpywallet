@@ -2,4 +2,3 @@ include README.rst
 include LICENSE
 include AUTHORS
 include requirements.txt
-recursive-include zpywallet/mnemonic *

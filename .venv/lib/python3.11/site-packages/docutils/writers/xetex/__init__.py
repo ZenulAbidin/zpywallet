@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # :Author: Günter Milde <milde@users.sf.net>
-# :Revision: $Revision: 9043 $
-# :Date: $Date: 2022-03-11 13:09:16 +0100 (Fr, 11. Mär 2022) $
+# :Revision: $Revision: 9293 $
+# :Date: $Date: 2022-12-01 22:13:54 +0100 (Do, 01. Dez 2022) $
 # :Copyright: © 2010 Günter Milde.
 # :License: Released under the terms of the `2-Clause BSD license`_, in short:
 #
@@ -40,9 +40,7 @@ class Writer(latex2e.Writer):
 \\setmonofont[HyphenChar=None,Scale=MatchLowercase]{DejaVu Sans Mono}"""
 
     config_section = 'xetex writer'
-    # TODO: remove dependency on `latex2e writer`.
-    config_section_dependencies = ('writers', 'latex writers',
-                                   'latex2e writer')
+    config_section_dependencies = ('writers', 'latex writers')
 
     # use a copy of the parent spec with some modifications:
     settings_spec = frontend.filter_settings_spec(
@@ -108,7 +106,7 @@ class Babel(latex2e.Babel):
                 'grc-ibycus',   # 'ibycus', (Greek Ibycus encoding)
                 'sr-Latn',      # 'serbian script=latin'
                 ):
-        del(language_codes[key.lower()])
+        del language_codes[key.lower()]
 
     def __init__(self, language_code, reporter):
         self.language_code = language_code

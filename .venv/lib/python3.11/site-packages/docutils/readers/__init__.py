@@ -1,4 +1,4 @@
-# $Id: __init__.py 9026 2022-03-04 15:57:13Z milde $
+# $Id: __init__.py 9258 2022-11-21 14:51:43Z milde $
 # Authors: David Goodger <goodger@python.org>; Ueli Schlaepfer
 # Copyright: This module has been placed in the public domain.
 
@@ -30,9 +30,9 @@ class Reader(Component):
     config_section = 'readers'
 
     def get_transforms(self):
-        return Component.get_transforms(self) + [universal.Decorations,
-                                                 universal.ExposeInternals,
-                                                 universal.StripComments]
+        return super().get_transforms() + [universal.Decorations,
+                                           universal.ExposeInternals,
+                                           universal.StripComments]
 
     def __init__(self, parser=None, parser_name=None):
         """

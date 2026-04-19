@@ -1,4 +1,4 @@
-# :Id: $Id: __init__.py 9026 2022-03-04 15:57:13Z milde $
+# :Id: $Id: __init__.py 9516 2024-01-15 16:11:08Z milde $
 # :Author: Guenter Milde.
 # :License: Released under the terms of the `2-Clause BSD license`_, in short:
 #
@@ -19,11 +19,23 @@ It contains various modules for conversion between different math formats
 :latex2mathml: LaTeX math -> presentational MathML
 :unichar2tex:  Unicode character to LaTeX math translation table
 :tex2unichar:  LaTeX math to Unicode character translation dictionaries
+:mathalphabet2unichar:  LaTeX math alphabets to Unicode character translation
 :tex2mathml_extern: Wrapper for 3rd party TeX -> MathML converters
 """
 
 # helpers for Docutils math support
 # =================================
+
+
+class MathError(ValueError):
+    """Exception for math syntax and math conversion errors.
+
+    The additional attribute `details` may hold a list of Docutils
+    nodes suitable as children for a ``<system_message>``.
+    """
+    def __init__(self, msg, details=[]):
+        super().__init__(msg)
+        self.details = details
 
 
 def toplevel_code(code):
@@ -50,3 +62,12 @@ def pick_math_environment(code, numbered=False):
     if not numbered:
         env += '*'
     return env
+
+
+def wrap_math_code(code, as_block):
+    # Wrap math-code in mode-switching TeX command/environment.
+    # If `as_block` is True, use environment for displayed equation(s).
+    if as_block:
+        env = pick_math_environment(code)
+        return '\\begin{%s}\n%s\n\\end{%s}' % (env, code, env)
+    return '$%s$' % code

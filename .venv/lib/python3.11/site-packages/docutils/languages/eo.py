@@ -1,4 +1,4 @@
-# $Id: eo.py 9030 2022-03-05 23:28:32Z milde $
+# $Id: eo.py 9452 2023-09-27 00:11:54Z milde $
 # Author: Marcelo Huerta San Martin <richieadler@users.sourceforge.net>
 # Copyright: This module has been placed in the public domain.
 
@@ -15,8 +15,8 @@ __docformat__ = 'reStructuredText'
 
 labels = {
       # fixed: language-dependent
-      'author': 'A\u016dtoro',
-      'authors': 'A\u016dtoroj',
+      'author': 'Aŭtoro',
+      'authors': 'Aŭtoroj',
       'organization': 'Organizo',
       'address': 'Adreso',
       'contact': 'Kontakto',
@@ -25,12 +25,12 @@ labels = {
       'status': 'Stato',
       'date': 'Dato',
       # 'copyright': 'Kopirajto',
-      'copyright': 'A\u016dtorrajto',
-      'dedication': 'Dedi\u0109o',
+      'copyright': 'Aŭtorrajto',
+      'dedication': 'Dediĉo',
       'abstract': 'Resumo',
       'attention': 'Atentu!',
       'caution': 'Zorgu!',
-      'danger': 'DAN\u011cERO!',
+      'danger': 'DANĜERO!',
       'error': 'Eraro',
       'hint': 'Spuro',
       'important': 'Grava',
@@ -42,8 +42,8 @@ labels = {
 
 bibliographic_fields = {
       # language-dependent: fixed
-      'a\u016dtoro': 'author',
-      'a\u016dtoroj': 'authors',
+      'aŭtoro': 'author',
+      'aŭtoroj': 'authors',
       'organizo': 'organization',
       'adreso': 'address',
       'kontakto': 'contact',
@@ -51,8 +51,8 @@ bibliographic_fields = {
       'revido': 'revision',
       'stato': 'status',
       'dato': 'date',
-      'a\u016dtorrajto': 'copyright',
-      'dedi\u0109o': 'dedication',
+      'aŭtorrajto': 'copyright',
+      'dediĉo': 'dedication',
       'resumo': 'abstract'}
 """Esperanto (lowcased) to canonical name mapping for bibliographic fields."""
 

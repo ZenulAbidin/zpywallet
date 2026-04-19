@@ -10,12 +10,12 @@
 - Packaging/build: `setuptools` via `setup.py`, `setup.cfg`, `python -m build`.
 - Dependency management: `pip` with `requirements.txt` and `requirements-dev.txt`.
 - Validation: `tox`, `pytest`, `coverage`, `flake8`, `Sphinx`, `rstcheck`.
-- CI evidence: `.github/workflows/commit.yml` runs `python -m pip install -r requirements-dev.txt` then `tox` on Python 3.8-3.12.
+- CI evidence: `.github/workflows/commit.yml` runs `python -m pip install -r requirements-dev.txt` then `tox` on Python 3.10-3.14.
 - Local workspace constraints:
   - `python3` is available and works with `venv`.
   - The host Python is externally managed under PEP 668, so direct global `pip install` is blocked.
   - Local validation now runs in `.venv/` with repo-declared dev and runtime dependencies installed.
-  - A local `.venv/` exists for validation but is an untracked environment artifact, not repository source.
+  - This branch currently tracks `.venv/` from an earlier baseline commit, so local tool installs dirty many environment files that are not part of the intended source changes.
 
 ## Likely Validation Commands
 - Install/setup: `python3 -m pip install -r requirements-dev.txt`
@@ -40,6 +40,7 @@
 - `done` `broken flow`: remove wasted PBKDF2 work in `zpywallet/utils/aes.py` that made wallet create/deserialize paths unreasonably slow.
 - `done` `test/build/lint/type failure`: add regression coverage proving the optimized PBKDF2 output matches the legacy-derived prefix used by wallet encryption.
 - `done` `broken flow`: make broadcast fan-out actually concurrent so public-node propagation no longer serializes blocking network calls across every provider.
+- `done` `developer experience issue affecting completion`: repair the package/release path so `requirements-dev.txt` installs `build`, modern `twine`, correct package homepage metadata, and clean mnemonic package data without leaking cache artifacts into release archives.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
 ## Validations Attempted
@@ -81,20 +82,31 @@
 - `env GITHUB_ACTIONS=true .venv/bin/python -m tox -e py311,flake8,docs` -> success on current tree (`py311`, `flake8`, and `docs` all passed in 240.83s`)
 - `.venv/bin/python -m pytest tests -q` -> success on current tree (`105 passed, 1 warning in 226.81s`)
 - `env GITHUB_ACTIONS=true .venv/bin/python -m tox -e py311,flake8,docs` -> success on current tree (`py311`, `flake8`, and `docs` all passed in 311.79s`)
+- `.venv/bin/python -m build` -> failed before packaging fix (`No module named build`)
+- `.venv/bin/python -m twine check dist/*` -> failed before packaging fix under `twine==4.0.2` (`KeyError: 'license'`)
+- `.venv/bin/python -m pip install build 'twine>=5'` -> success; used to identify a working local release-tool version
+- `.venv/bin/python -m pip install -r requirements-dev.txt` -> success after updating the dev-tool pins
+- `.venv/bin/python -m pytest tests/test_04_mnemonic.py -q` -> success after packaging-data changes (`7 passed, 1 warning in 11.83s`)
+- `.venv/bin/python -m build` -> success after packaging fixes; rebuilt clean `sdist` and wheel with the intended mnemonic assets
+- `.venv/bin/python -m twine check dist/*` -> success after packaging fixes
+- `python3 - <<'PY' ... inspect dist metadata and archive contents ... PY` -> success; both archives now advertise `https://github.com/ZenulAbidin/zpywallet` and contain zero cache artifacts
 
 ## Current Iteration Summary
-- Chosen task: verify the current tree against the repo-native completion bar after the CI flake fix, and confirm whether any justified in-scope work remains.
-- In-scope evidence: `README.rst`, `tox.ini`, `.github/workflows/commit.yml`, and the existing tests define this library's completion bar as passing test, lint, and docs flows for the documented wallet, transaction, provider, and packaging paths.
+- Chosen task: repair the remaining library packaging/release defects after confirming the core runtime, docs, and CI-oriented test flows were already passing.
+- In-scope evidence: this is a packaged Python library, the repo instructions explicitly call out `python -m build`, and `.github/workflows/release-publish.yml` depends on working `build`, `twine`, and correct package metadata.
 - Changes made:
-  - rechecked the current diffs and unfinished-work markers against the documented project scope
-  - reran the full local test suite on the current tree
-  - reran the CI-shaped `py311`, `flake8`, and `docs` tox environments with `GITHUB_ACTIONS=true` on the current tree
-- Remaining work: no additional high-value, in-scope work is justified by the repository evidence in the available environment.
+  - added `build==1.4.3` and upgraded `twine` to `6.2.0` in `requirements-dev.txt` so the repo-declared developer toolchain can run the release checks locally
+  - corrected the package homepage in `setup.py` from the legacy `pywallet` URL to the actual `zpywallet` repository
+  - made `zpywallet/mnemonic/wordlist` an explicit package and switched mnemonic asset shipping to explicit `package_data`, eliminating ambiguous package discovery and cache-artifact leakage from release archives
+  - simplified `MANIFEST.in` so the source distribution only includes the intended top-level metadata files while setuptools handles mnemonic assets explicitly
+- Remaining work: no new high-value, in-scope defects are currently justified by the repository evidence beyond the workspace-only `.venv/` churn noted below.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
+- This branch tracks `.venv/` from an earlier baseline commit, so local tool reinstalls dirtied many environment files unrelated to the repository source. The current source edits are limited to `MANIFEST.in`, `requirements-dev.txt`, `setup.py`, and `zpywallet/mnemonic/wordlist/__init__.py`.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.
 - Support for new coins/chains remains out of scope without direct repository evidence requiring it.
+- Local `.venv/` churn from validation is treated as workspace-only environment noise, not intended repository source work.
