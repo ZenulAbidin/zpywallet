@@ -227,23 +227,29 @@
 - `./.venv/bin/python -m pytest tests -q` -> success on the wallet fee/change tree (`129 passed, 1 warning in 608.18s`)
 - `./.venv/bin/python -m tox -e docs` -> success on the wallet fee/change tree (`docs: OK`)
 - `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the wallet fee/change tree; release artifacts still build and pass metadata checks cleanly
+- `git status --short --branch` -> clean committed tree before the final clean-tree audit (`ahead 18`)
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed again on the committed tree; remaining hits are still abstract guards, retry/fallback branches, comments, or test scaffolding rather than a newly justified in-scope blocker
+- `./.venv/bin/python -m pytest tests -q` -> success on the committed tree during the final clean-tree audit (`129 passed, 1 warning in 694.82s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the committed tree during the final clean-tree audit (`flake8: OK`)
+- `./.venv/bin/python -m tox -e docs` -> success on the committed tree during the final clean-tree audit (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the committed tree during the final clean-tree audit; release artifacts still build and pass metadata validation cleanly
+- `git status --short --branch` -> tree stayed clean after the final clean-tree audit, before updating this progress file (`ahead 18`)
 
 ## Current Iteration Summary
-- Chosen task: repair the remaining BTC wallet fee/change path so supported destination fee policies and exact-spend transactions behave correctly through `Wallet.create_transaction()`.
-- In-scope evidence: `Destination.fee_policy()` and the public wallet send API are part of the repository’s current library surface, and source inspection showed `_calculate_change()` adjusted outputs locally but `Wallet.create_transaction()` still signed the original caller list.
+- Chosen task: perform a final clean-tree audit on the current committed library to verify that no additional in-scope implementation work remains.
+- In-scope evidence: this repository is a packaged wallet library, so after the latest wallet-core fix the highest-value remaining task was to re-check supported flows, repo-native validation commands, and unfinished-work markers directly on the clean committed tree before terminating.
 - Changes made:
-- added wallet helpers to estimate BTC transaction size and apply proportional fee reductions exactly in raw units without mutating the caller’s `destinations` list
-- changed `_calculate_change()` to return the adjusted destination set plus any change output, so the final low-level signer uses the same outputs that the fee/change calculation validated
-- made the BTC send path fall back to a no-change transaction when inputs cover the intended outputs plus fee but not an additional change output
-- extended wallet tests to cover proportional-fee output adjustment end to end, exact-spend/no-change sends, immutable caller destinations, and the updated helper behavior
-- Remaining work: no new in-scope blocker is currently known beyond the existing out-of-scope polish and environment limits already documented below.
+- re-ran the highest-signal validations on the clean committed tree: full `pytest`, `tox -e flake8`, `tox -e docs`, and package build plus `twine check`
+- re-checked unfinished-work markers on tracked source while excluding generated/build artifacts and found no new supported-path blocker
+- left repository source files unchanged because this audit did not surface another broken core flow, missing supported feature, or validation failure
+- Remaining work: no new in-scope implementation blocker is known beyond the already documented environment limits and explicit out-of-scope boundaries below.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
 - This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source.
 - The full local `tox` interpreter matrix cannot be rerun end to end in this container without additional Python runtimes (`3.10`, `3.12`, `3.13`, `3.14`), but that is an environment limitation rather than a source blocker.
-- No remaining in-scope implementation blocker is known after the latest wallet-core fix and validation pass.
+- No remaining in-scope implementation blocker is known after the final clean-tree audit.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.
