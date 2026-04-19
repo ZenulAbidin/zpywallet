@@ -33,6 +33,7 @@
 - Query balances, UTXOs, fees, and address history through providers.
 
 ## Backlog
+- `done` `test/build/lint/type failure`: make GitHub Actions coverage upload conditional so missing `CODECOV_TOKEN` no longer fails the entire matrix after successful tox runs.
 - `done` `broken flow`: fix transaction creation loop in `zpywallet/transactions/encode.py` so list inputs can be signed.
 - `done` `developer experience issue affecting completion`: create a local `.venv` and install repo-declared tooling so runtime validation works under PEP 668.
 - `done` `broken flow`: remove wasted PBKDF2 work in `zpywallet/utils/aes.py` that made wallet create/deserialize paths unreasonably slow.
@@ -60,18 +61,30 @@
 - `.venv/bin/python -m pytest tests -q` -> success (`105 passed, 1 warning`)
 - `.venv/bin/python -m tox -e flake8` -> success
 - `.venv/bin/python -m tox -e docs` -> success
+- `gh auth status` -> blocked (`gh: command not found`)
+- `gh run list --limit 5` -> blocked (`gh: command not found`)
+- `.venv/bin/python -m tox -vv` -> success locally outside GitHub Actions; `tox-gh-actions` correctly reports it only overrides env selection when `GITHUB_ACTIONS=true`
+- `.venv/bin/python - <<'PY' ... import yaml ... PY` -> blocked (`ModuleNotFoundError: No module named 'yaml'`)
+- `.venv/bin/python -m pytest tests -q` -> success after workflow edit (`105 passed, 1 warning in 236.71s`)
+- `rg -n "TODO|FIXME|XXX|HACK|not implemented|NotImplemented|stub|placeholder" zpywallet tests docs README.rst` -> reviewed; hits are existing internal notes, abstract-base guards, or generated docs, not a newly justified production blocker
+- `.venv/bin/python -m tox -e flake8` -> success after workflow edit
+- `.venv/bin/python -m tox -e docs` -> success after workflow edit
+- `.venv/bin/python -m pytest tests -q` -> success on current tree (`105 passed, 1 warning in 211.38s`)
+- `.venv/bin/python -m tox -e flake8` -> success on current tree
+- `.venv/bin/python -m tox -e docs` -> success on current tree
 
 ## Current Iteration Summary
-- Chosen task: confirm whether any justified in-scope work remained after the wallet encryption and broadcast fixes by running the repo-native validation stack end to end.
-- In-scope evidence: `README.rst`, `tox.ini`, and `.github/workflows/commit.yml` define this project as a Python library whose expected completion bar is passing tests, lint, and docs for the documented wallet/transaction flows.
+- Chosen task: verify whether any further in-scope work remained after the CI workflow fix by rerunning the full repository-native validation stack and rechecking unfinished-work markers.
+- In-scope evidence: `README.rst`, `tox.ini`, `tests/`, and `.github/workflows/commit.yml` define the completion bar for this library as passing tests, lint, and docs for the documented wallet, transaction, and provider flows.
 - Changes made:
-  - created the required session baseline commit `ddf9e04` (`chore: baseline before autonomous work`) for the existing source changes before further edits
-  - revalidated the entire local test suite with `.venv/bin/python -m pytest tests -q`
-  - revalidated the repo-native lint and docs flows with `.venv/bin/python -m tox -e flake8` and `.venv/bin/python -m tox -e docs`
-- Remaining work: none justified by current repository evidence; the documented library scope now validates locally.
+  - reran `.venv/bin/python -m pytest tests -q` on the current tree and confirmed the full suite still passes
+  - reran `.venv/bin/python -m tox -e flake8` and `.venv/bin/python -m tox -e docs` on the current tree and confirmed both pass
+  - rechecked unfinished-work markers and found no new production-path blockers justified by repository evidence
+- Remaining work: no additional high-value, in-scope work is justified by the repository evidence in the available environment.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
+- GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.
