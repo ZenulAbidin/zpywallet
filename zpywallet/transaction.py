@@ -172,9 +172,12 @@ class Transaction:
             raise ValueError("Blockchain does not support the 'sat_inputs' property")
         inputs = []
         for i in self._sat_metadata["inputs"]:
-            if not include_witness and "witness" in i.keys():
-                del i["witness"]
-            inputs.append(i)
+            input_metadata = {}
+            for key, value in i.items():
+                input_metadata[key] = list(value) if key == "witness" else value
+            if not include_witness:
+                input_metadata.pop("witness", None)
+            inputs.append(input_metadata)
         return inputs
 
     def sat_outputs(self, only_unspent=False):
@@ -189,5 +192,5 @@ class Transaction:
         outputs = []
         for o in self._sat_metadata["outputs"]:
             if not only_unspent or not o["spent"]:
-                outputs.append(o)
+                outputs.append(dict(o))
         return outputs

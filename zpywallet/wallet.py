@@ -451,7 +451,9 @@ class Wallet:
             u = inputs[ii]
             for i in range(len(private_keys)):
                 private_key = private_keys[i]
-                privkey = PrivateKey.from_wif(private_key.decode(), self._network)
+                if isinstance(private_key, bytes):
+                    private_key = private_key.decode()
+                privkey = PrivateKey.from_wif(private_key, self._network)
                 try:
                     a = [
                         privkey.public_key.base58_address(True),
@@ -463,13 +465,10 @@ class Wallet:
                         privkey.public_key.base58_address(True),
                         privkey.public_key.base58_address(False),
                     ]
-                u._output["private_key"] = (
-                    privkey if u._output["address"] in a else None
-                )
-                u._output["address_hash"] = privkey.public_key.hash160()
-                del private_key
-                if u._output["private_key"] is None:
+                if u._output["address"] not in a:
                     continue
+                u._output["private_key"] = privkey
+                u._output["address_hash"] = privkey.public_key.hash160()
                 new_inputs.append(u)
                 break
         return new_inputs
@@ -497,16 +496,14 @@ class Wallet:
 
         # Not an EVM chain
 
+        utxos = self.get_utxos(only_unspent=True)
         total_balance = 0
         confirmed_balance = 0
-
-        utxos = self.get_utxos(only_unspent=True)
         for u in utxos:
-            confirmed_balance += u.amount(in_standard_units=in_standard_units)
-
-        utxos = self.get_utxos()
-        for u in utxos:
-            total_balance += u.amount(in_standard_units=in_standard_units)
+            amount = u.amount(in_standard_units=in_standard_units)
+            total_balance += amount
+            if u.height():
+                confirmed_balance += amount
 
         return total_balance, confirmed_balance
 
@@ -527,12 +524,14 @@ class Wallet:
             str: A randomly selected address from the wallet.
         """
         addresses = self.addresses()
+        if not addresses:
+            raise ValueError("Wallet has no addresses")
 
         # Use a secure RNG to resist blockchain analysis
         limit = len(addresses)
 
         # Convert bits to bytes and round up to the nearest byte
-        watermark = int(math.ceil(math.log2(len(addresses)))) // 8
+        watermark = max(1, math.ceil((limit - 1).bit_length() / 8))
 
         while limit >= len(addresses):
             limit = int.from_bytes(Random.new().read(watermark), byteorder="big")
@@ -578,6 +577,7 @@ class Wallet:
         size = transaction_size_simple(temp_transaction)
         total_inputs = sum([i.amount(in_standard_units=False) for i in inputs])
         total_outputs = sum([o.amount(in_standard_units=False) for o in destinations])
+        unit = 1e18 if self._network.SUPPORTS_EVM else 1e8
         fee_proportional_outputs = [
             o for o in destinations if o.fee_policy() == FeePolicy.PROPORTIONAL
         ]
@@ -591,7 +591,7 @@ class Wallet:
                 destinations = []
                 for o in old_destinations:
                     if o.fee_policy() == FeePolicy.PROPORTIONAL:
-                        o._amount -= proportional_fee
+                        o._amount -= proportional_fee / unit
                     destinations.append(o)
             else:
                 raise ValueError("Not enough balance for this transaction")
@@ -611,7 +611,7 @@ class Wallet:
         return (
             None
             if change <= 0
-            else Destination(self.random_address(), change / 1e8, self._network)
+            else Destination(self.random_address(), change / unit, self._network)
         )
 
     # Fee rate is in the unit used by the network, ie. vbytes, bytes or wei
@@ -667,6 +667,9 @@ class Wallet:
                 full_nodes=fullnode_endpoints,
                 **kwargs,
             )
+
+        if fee_rate is None:
+            raise ValueError("fee_rate is required for non-EVM transactions")
 
         inputs = self.get_utxos(only_unspent=True)
 

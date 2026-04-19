@@ -29,6 +29,7 @@ from zpywallet.nodes.eth import eth_nodes
 from zpywallet.transactions.decode import transaction_size_simple
 from zpywallet.generated import wallet_pb2
 from zpywallet.address.provider import AddressProvider
+from zpywallet.transaction import Transaction as WalletTransaction
 
 
 class TestAddress(unittest.TestCase):
@@ -457,3 +458,37 @@ class TestAddress(unittest.TestCase):
         print(signed_transaction)
         print(correct_signed_transaction)
         self.assertEqual(signed_transaction, correct_signed_transaction)
+
+    def test_008_transaction_wrapper_preserves_witness_metadata(self):
+        transaction = wallet_pb2.Transaction()
+        transaction.fee_metric = wallet_pb2.FeeMetric.Value("VBYTE")
+        tx_input = transaction.btclike_transaction.inputs.add(
+            txid="prev", index=0, amount=123, address="bc1qexample"
+        )
+        tx_input.witness_data.extend([b"first", b"second"])
+
+        wrapped = WalletTransaction(transaction, BitcoinSegwitMainNet)
+
+        self.assertNotIn("witness", wrapped.sat_inputs()[0])
+
+        with_witness = wrapped.sat_inputs(include_witness=True)[0]
+        self.assertEqual(with_witness["witness"], [b"first", b"second"])
+
+        with_witness["witness"].append(b"mutated")
+        self.assertEqual(
+            wrapped.sat_inputs(include_witness=True)[0]["witness"],
+            [b"first", b"second"],
+        )
+
+    def test_009_transaction_wrapper_returns_output_copies(self):
+        transaction = wallet_pb2.Transaction()
+        transaction.fee_metric = wallet_pb2.FeeMetric.Value("VBYTE")
+        transaction.btclike_transaction.outputs.add(
+            index=0, amount=321, address="bc1qoutput", spent=False
+        )
+
+        wrapped = WalletTransaction(transaction, BitcoinSegwitMainNet)
+        outputs = wrapped.sat_outputs()
+        outputs[0]["address"] = "mutated"
+
+        self.assertEqual(wrapped.sat_outputs()[0]["address"], "bc1qoutput")

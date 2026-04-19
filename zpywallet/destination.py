@@ -58,6 +58,12 @@ class Destination:
         else:
             return self._amount
 
+    def fee_policy(self):
+        """
+        Returns the fee policy associated with the destination.
+        """
+        return self._fee_policy
+
     def script_pubkey(self):
         """
         Returns the script public key associated with the destination.

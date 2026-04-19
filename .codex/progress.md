@@ -41,6 +41,10 @@
 - `done` `test/build/lint/type failure`: add regression coverage proving the optimized PBKDF2 output matches the legacy-derived prefix used by wallet encryption.
 - `done` `broken flow`: make broadcast fan-out actually concurrent so public-node propagation no longer serializes blocking network calls across every provider.
 - `done` `developer experience issue affecting completion`: repair the package/release path so `requirements-dev.txt` installs `build`, modern `twine`, correct package homepage metadata, and clean mnemonic package data without leaking cache artifacts into release archives.
+- `done` `broken flow`: repair the documented BTC wallet send path so decrypted WIFs, fee policies, address-hash lookup, and segwit `nsequence` handling all work under the real `Wallet.create_transaction()` flow.
+- `done` `security/validation/data integrity issue`: fix wallet-core helpers so `get_balance()` only counts confirmed UTXOs as confirmed and `random_address()` draws from the full configured receive gap instead of collapsing to a low-byte subset.
+- `done` `security/validation/data integrity issue`: make `Transaction.sat_inputs()` and `sat_outputs()` return copies so witness data and output metadata stay stable across repeated public API calls.
+- `todo` `security/validation/data integrity issue`: the EVM transaction wrapper still exposes stored `gas` as `gasUsed`, which looks semantically wrong for history/reporting.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
 ## Validations Attempted
@@ -90,21 +94,30 @@
 - `.venv/bin/python -m build` -> success after packaging fixes; rebuilt clean `sdist` and wheel with the intended mnemonic assets
 - `.venv/bin/python -m twine check dist/*` -> success after packaging fixes
 - `python3 - <<'PY' ... inspect dist metadata and archive contents ... PY` -> success; both archives now advertise `https://github.com/ZenulAbidin/zpywallet` and contain zero cache artifacts
+- `.venv/bin/python - <<'PY' ... wallet.create_transaction(...) with a mocked BTC UTXO ... PY` -> failed before fix (`AttributeError: 'str' object has no attribute 'decode'`), confirming the wallet-level BTC send path was still broken
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -q` -> failed before the segwit follow-up fix on the new wallet regression (`TypeError: fromhex() argument must be str, not bytes`), exposing a second send-path mismatch in `assemble_segwit_payload()`
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -q` -> success after the wallet-core fixes (`10 passed, 1 warning in 100.31s`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/wallet.py zpywallet/destination.py zpywallet/transactions/encode.py tests/test_06_wallet.py` -> success
+- `.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success after the segwit payload fix (`8 passed, 1 warning in 2.19s`)
+- `.venv/bin/python -m pytest tests -q` -> success on the current wallet-core tree (`110 passed, 1 warning in 207.90s`)
+- `.venv/bin/python -m tox -e flake8` -> success on the current wallet-core tree
+- `.venv/bin/python - <<'PY' ... Transaction(...).sat_inputs(); Transaction(...).sat_inputs(include_witness=True) ... PY` -> failed before fix; the first call deleted witness data from the wrapper's cached input metadata
+- `.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success after the transaction-wrapper copy fix (`10 passed, 1 warning in 2.40s`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/transaction.py tests/test_08_transaction.py` -> success
 
 ## Current Iteration Summary
-- Chosen task: repair the remaining library packaging/release defects after confirming the core runtime, docs, and CI-oriented test flows were already passing.
-- In-scope evidence: this is a packaged Python library, the repo instructions explicitly call out `python -m build`, and `.github/workflows/release-publish.yml` depends on working `build`, `twine`, and correct package metadata.
+- Chosen task: harden the public `Transaction` wrapper after reproducing source-level data mutation in repeated `sat_inputs()` calls.
+- In-scope evidence: `Transaction` objects are part of the documented wallet history API in `docs/source/usage.rst`, and callers are expected to be able to inspect inputs/outputs multiple times without altering cached metadata.
 - Changes made:
-  - added `build==1.4.3` and upgraded `twine` to `6.2.0` in `requirements-dev.txt` so the repo-declared developer toolchain can run the release checks locally
-  - corrected the package homepage in `setup.py` from the legacy `pywallet` URL to the actual `zpywallet` repository
-  - made `zpywallet/mnemonic/wordlist` an explicit package and switched mnemonic asset shipping to explicit `package_data`, eliminating ambiguous package discovery and cache-artifact leakage from release archives
-  - simplified `MANIFEST.in` so the source distribution only includes the intended top-level metadata files while setuptools handles mnemonic assets explicitly
-- Remaining work: no new high-value, in-scope defects are currently justified by the repository evidence beyond the workspace-only `.venv/` churn noted below.
+  - changed `Transaction.sat_inputs()` to build copies of the cached input dicts and copy witness lists before optionally omitting them from the returned value
+  - changed `Transaction.sat_outputs()` to return copies instead of exposing the wrapper's internal output dicts directly
+  - added regression coverage proving witness data remains available after a prior `sat_inputs(include_witness=False)` call and that mutating returned outputs does not leak back into cached state
+- Remaining work: the EVM history wrapper still appears to conflate stored `gas` with `gasUsed`, and that is the next justified data-integrity item.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
-- This branch tracks `.venv/` from an earlier baseline commit, so local tool reinstalls dirtied many environment files unrelated to the repository source. The current source edits are limited to `MANIFEST.in`, `requirements-dev.txt`, `setup.py`, and `zpywallet/mnemonic/wordlist/__init__.py`.
+- This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source. The current source edits across the active iterations are limited to `tests/test_06_wallet.py`, `tests/test_08_transaction.py`, `zpywallet/destination.py`, `zpywallet/transaction.py`, `zpywallet/transactions/encode.py`, and `zpywallet/wallet.py`.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.

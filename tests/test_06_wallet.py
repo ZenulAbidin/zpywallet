@@ -7,12 +7,14 @@
 import unittest
 import asyncio
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 from zpywallet.generated import wallet_pb2
 from zpywallet import Wallet
 from zpywallet.destination import Destination
 from zpywallet.broadcast.btc import all as btc_broadcast_all
 from zpywallet.network import BitcoinSegwitMainNet, EthereumMainNet
+from zpywallet.utxo import UTXO
 
 
 class TestWallet(unittest.TestCase):
@@ -126,6 +128,77 @@ class TestWallet(unittest.TestCase):
         self.assertEqual(args[1], destinations)
         self.assertEqual(kwargs["network"], EthereumMainNet)
         self.assertIn("full_nodes", kwargs)
+
+    def test_006_wallet_create_transaction_executes_btc_flow(self):
+        wallet = Wallet(
+            BitcoinSegwitMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1,
+        )
+        source_address = wallet.addresses()[0]
+        fake_utxo = UTXO(
+            None,
+            None,
+            _network=BitcoinSegwitMainNet,
+            _internal_param_do_not_use={
+                "txid": "00" * 32,
+                "index": 0,
+                "amount": 50000,
+                "address": source_address,
+                "height": 1,
+            },
+        )
+        destinations = [Destination(source_address, 0.0001, BitcoinSegwitMainNet)]
+
+        with patch.object(wallet, "get_utxos", return_value=[fake_utxo]):
+            signed = wallet.create_transaction("zpywallet", destinations, fee_rate=1)
+
+        self.assertIsInstance(signed, str)
+        self.assertRegex(signed, r"^[0-9a-f]+$")
+
+    def test_007_wallet_get_balance_counts_only_confirmed_utxos(self):
+        wallet = Wallet(
+            BitcoinSegwitMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1,
+        )
+        confirmed = SimpleNamespace(
+            amount=lambda in_standard_units=True: 0.001 if in_standard_units else 100000,
+            height=lambda: 42,
+        )
+        unconfirmed = SimpleNamespace(
+            amount=lambda in_standard_units=True: 0.002 if in_standard_units else 200000,
+            height=lambda: 0,
+        )
+
+        with patch.object(wallet, "get_utxos", return_value=[confirmed, unconfirmed]):
+            total_balance, confirmed_balance = wallet.get_balance()
+
+        self.assertEqual(total_balance, 0.003)
+        self.assertEqual(confirmed_balance, 0.001)
+
+    def test_008_random_address_uses_enough_entropy_bytes(self):
+        wallet = Wallet(
+            BitcoinSegwitMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1000,
+        )
+        reader = SimpleNamespace(calls=[])
+
+        def read(byte_count):
+            reader.calls.append(byte_count)
+            return b"\x03\xe7"[:byte_count]
+
+        reader.read = read
+
+        with patch("zpywallet.wallet.Random.new", return_value=reader):
+            address = wallet.random_address()
+
+        self.assertEqual(reader.calls, [2])
+        self.assertEqual(address, wallet.addresses()[999])
 
     def test_006_wallet_broadcast_runs_providers_concurrently(self):
         async def blocking_provider(*args, **kwargs):

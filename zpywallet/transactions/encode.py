@@ -118,7 +118,10 @@ def assemble_segwit_payload(
     # hash_sequence (32-byte hash)
     hash_sequence = b""
     for j in inputs:
-        hash_sequence += bytes.fromhex(j._nsequence())
+        nsequence = j._nsequence()
+        if isinstance(nsequence, str):
+            nsequence = bytes.fromhex(nsequence)
+        hash_sequence += nsequence
     segwit_payload += hashlib.sha256(hashlib.sha256(hash_sequence).digest()).digest()
 
     # outpoint (32-byte hash + 4-byte little endian)
@@ -356,7 +359,7 @@ def create_transaction(
                 i._private_key().public_key.script(),
                 i._private_key(),
                 SIGHASH_ALL,
-                i.key_hash(),
+                i._addresshash(),
                 segwit_payload,
                 i.network(),
             ]
