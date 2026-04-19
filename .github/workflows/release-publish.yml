@@ -11,28 +11,65 @@ name: Upload Python Package
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Upload the built distributions to PyPI
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
   deploy:
-
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
-        python-version: '3.x'
+        python-version: '3.12'
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install build
+        python -m pip install build twine
+    - name: Verify release version matches package version
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        RELEASE_TAG: ${{ github.event.release.tag_name }}
+      run: |
+        python - <<'PY'
+        import os
+        import re
+        from pathlib import Path
+
+        version_text = Path("zpywallet/_version.py").read_text(encoding="utf-8")
+        match = re.search(r'__version__ = "([^"]+)"', version_text)
+        if not match:
+            raise SystemExit("Could not read package version from zpywallet/_version.py")
+
+        package_version = match.group(1)
+        print(f"Package version: {package_version}")
+
+        if os.environ["EVENT_NAME"] == "release":
+            release_tag = os.environ["RELEASE_TAG"].removeprefix("v")
+            print(f"Release tag: {release_tag}")
+            if release_tag != package_version:
+                raise SystemExit(
+                    f"Release tag v{release_tag} does not match package version {package_version}"
+                )
+        PY
     - name: Build package
       run: python -m build
+    - name: Check distribution metadata
+      run: python -m twine check dist/*
     - name: Publish package
+      if: github.event_name == 'release' || inputs.publish
       uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
       with:
         user: __token__
