@@ -613,7 +613,6 @@ class Wallet:
         size = transaction_size_simple(temp_transaction)
         total_inputs = sum([i.amount(in_standard_units=False) for i in inputs])
         total_outputs = sum([o.amount(in_standard_units=False) for o in destinations])
-        unit = 1e18 if self._network.SUPPORTS_EVM else 1e8
         fee_proportional_outputs = [
             o for o in destinations if o.fee_policy() == FeePolicy.PROPORTIONAL
         ]
@@ -627,8 +626,23 @@ class Wallet:
                 destinations = []
                 for o in old_destinations:
                     if o.fee_policy() == FeePolicy.PROPORTIONAL:
-                        o._amount -= proportional_fee / unit
-                    destinations.append(o)
+                        adjusted_amount = o.amount(in_standard_units=False) - proportional_fee
+                        if adjusted_amount < 0:
+                            raise ValueError(
+                                "Not enough balance for this transaction "
+                                "(are you trying to send dust amounts?)"
+                            )
+                        destinations.append(
+                            Destination(
+                                o.address(),
+                                adjusted_amount,
+                                self._network,
+                                fee_policy=o.fee_policy(),
+                                in_standard_units=False,
+                            )
+                        )
+                    else:
+                        destinations.append(o)
             else:
                 raise ValueError("Not enough balance for this transaction")
 
@@ -648,7 +662,10 @@ class Wallet:
             None
             if change <= 0
             else Destination(
-                self._random_change_address(), change / unit, self._network
+                self._random_change_address(),
+                change,
+                self._network,
+                in_standard_units=False,
             )
         )
 
@@ -726,7 +743,9 @@ class Wallet:
         # change output. Otherwise, the remaining balance is going to the miner.
         # This is not the real change input, we need to find the size of the
         # transaction first.
-        change = Destination(self._random_change_address(), 0, self._network)
+        change = Destination(
+            self._random_change_address(), 0, self._network, in_standard_units=False
+        )
         destinations_without_change = destinations[:]
         destinations_without_change.append(change)
 

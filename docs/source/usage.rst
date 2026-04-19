@@ -88,7 +88,7 @@ ZPyWallet has built-in support for fetching transaction history of addresses:
     from zpywallet.network import BitcoinSegwitMainNet # Or you can use BitcoinMainNet
     from zpywallet import Wallet
     from zpywallet import Destination
-    from zywallet.address.btc import BitcoinAddress
+    from zpywallet.address import CryptoClient
     from pprint import pprint as pp
 
     wallet = Wallet(...) # Create or restore a wallet here
@@ -100,7 +100,7 @@ ZPyWallet has built-in support for fetching transaction history of addresses:
         if tx.confirmed():
           print(f"Height: {tx.height()}")
         print(f"Total Fee: {tx.total_fee()}")
-        print(f"Fee Rate: {tx.sat_fee_rate()}")
+        print(f"Fee Rate: {tx.sat_feerate()}")
         print(f"Inputs: {pp(tx.sat_inputs())}")
         print(f"Outputs: {pp(tx.sat_outputs())}")
     
@@ -113,10 +113,14 @@ ZPyWallet has built-in support for fetching transaction history of addresses:
 
     # You can also get UTXOs directly from transactions:
     if len(transactions) > 0:
-        utxo = UTXO(transacitons[0], 1) # Get the first UTXO (transaction output)
+        utxo = UTXO(transactions[0], 1) # Get the first UTXO (transaction output)
 
     # You can even get the transaction history of random addresses:
-    address = BitcoinAddress(['bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c', '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa'])
+    address_client = CryptoClient(
+        ['bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c', '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa'],
+        coin="BTC",
+        chain="main",
+    )
 
     # ...Then you can call get_transaction_history(), get_utxos() and get_balance() like for a wallet
     
@@ -127,6 +131,9 @@ ZPyWallet has built-in support for fetching transaction history of addresses:
     address1 = "..."
     address2 = "..."
     destinations = [Destination(address1, 0.1, BitcoinSegWitMainNet), Destination(address2, 0.2, BitcoinSegWitMainNet)] # Amounts are in BTC
+
+    # Or specify raw units directly:
+    destinations = [Destination(address1, 10000000, BitcoinSegWitMainNet, in_standard_units=False)] # 0.1 BTC in sats
 
     # If you want to spend unconfirmed inputs, pass spend_unconfirmed_inputs=True
     fee_rate = 1 # sat/vbyte for Segwit network (for legacy networks it is in sat/byte)

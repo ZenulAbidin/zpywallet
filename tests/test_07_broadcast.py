@@ -3,12 +3,14 @@
 
 """Tests for transaction broadcasting."""
 
+import asyncio
 import binascii
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 from zpywallet.broadcast import broadcast_transaction, tx_hash
 from zpywallet import network
-from zpywallet.broadcast.eth.all import tx_hash_eth
+from zpywallet.broadcast.eth.all import broadcast_transaction_eth, tx_hash_eth
 from zpywallet.broadcast.eth.fullnode import broadcast_transaction_eth_generic
 
 
@@ -93,7 +95,7 @@ class TestBroadcast(unittest.TestCase):
                 "asyncio"
             ).run(
                 broadcast_transaction_eth_generic(
-                    "0xdeadbeef", url="https://example.invalid"
+                    "deadbeef", url="https://example.invalid"
                 )
             )
 
@@ -110,3 +112,48 @@ class TestBroadcast(unittest.TestCase):
             self.assertEqual(
                 broadcast_transaction(b"0x00", network.EthereumMainNet), "ok"
             )
+
+    def test_011_eth_tx_hash_accepts_signed_transaction_like_objects(self):
+        signed = SimpleNamespace(raw_transaction=bytes.fromhex("deadbeef"))
+
+        self.assertEqual(tx_hash_eth(signed), tx_hash_eth("0xdeadbeef"))
+
+    def test_012_eth_broadcast_normalizes_signed_transaction_objects(self):
+        captured = []
+
+        async def fake_blockcypher(raw_transaction_hex):
+            captured.append(("blockcypher", raw_transaction_hex))
+            return "ok"
+
+        async def fake_mew(raw_transaction_hex):
+            captured.append(("mew", raw_transaction_hex))
+            return "ok"
+
+        async def fake_generic(raw_transaction_hex, **kwargs):
+            captured.append(("generic", raw_transaction_hex, kwargs["url"]))
+            return "ok"
+
+        with patch(
+            "zpywallet.broadcast.eth.all.broadcast_transaction_eth_blockcypher",
+            fake_blockcypher,
+        ), patch(
+            "zpywallet.broadcast.eth.all.broadcast_transaction_eth_mew", fake_mew
+        ), patch(
+            "zpywallet.broadcast.eth.all.broadcast_transaction_eth_generic",
+            fake_generic,
+        ), patch("zpywallet.broadcast.eth.all.eth_nodes", []):
+            asyncio.run(
+                broadcast_transaction_eth(
+                    SimpleNamespace(raw_transaction=bytes.fromhex("deadbeef")),
+                    rpc_nodes=[{"url": "https://example.invalid"}],
+                )
+            )
+
+        self.assertEqual(
+            captured,
+            [
+                ("blockcypher", "deadbeef"),
+                ("mew", "deadbeef"),
+                ("generic", "deadbeef", "https://example.invalid"),
+            ],
+        )

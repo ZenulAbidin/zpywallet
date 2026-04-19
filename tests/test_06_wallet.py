@@ -12,7 +12,7 @@ from unittest.mock import patch
 from zpywallet.generated import wallet_pb2
 from zpywallet import Wallet
 from zpywallet.address.cache import SQLTransactionStorage
-from zpywallet.destination import Destination
+from zpywallet.destination import Destination, FeePolicy
 from zpywallet.broadcast.btc import all as btc_broadcast_all
 from zpywallet.network import BitcoinSegwitMainNet, EthereumMainNet
 from zpywallet.utxo import UTXO
@@ -303,6 +303,35 @@ class TestWallet(unittest.TestCase):
 
         self.assertEqual(change.address(), change_address)
         self.assertNotIn(change.address(), wallet.addresses())
+
+    def test_011_wallet_change_uses_raw_unit_arithmetic(self):
+        wallet = Wallet(
+            BitcoinSegwitMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1,
+            change_gap_limit=1,
+        )
+        source_address = wallet.addresses()[0]
+        inputs = [
+            SimpleNamespace(amount=lambda in_standard_units=False: 50000),
+        ]
+        destinations = [
+            Destination(
+                source_address,
+                49950,
+                BitcoinSegwitMainNet,
+                fee_policy=FeePolicy.PROPORTIONAL,
+                in_standard_units=False,
+            )
+        ]
+
+        with patch("zpywallet.wallet.create_transaction", return_value="00"):
+            with patch("zpywallet.wallet.transaction_size_simple", return_value=100):
+                change = wallet._calculate_change(inputs, destinations, fee_rate=1)
+
+        self.assertIsNotNone(change)
+        self.assertEqual(change.amount(in_standard_units=False), 50)
 
     def test_006_wallet_broadcast_runs_providers_concurrently(self):
         async def blocking_provider(*args, **kwargs):

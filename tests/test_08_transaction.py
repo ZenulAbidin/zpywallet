@@ -322,7 +322,49 @@ class TestAddress(unittest.TestCase):
                 EthereumMainNet.CHAIN_ID,
             )
 
-        self.assertEqual(signed["raw_transaction"], b"signed")
+        self.assertEqual(signed, b"signed".hex())
+
+    def test_005b_evm_transactions_reject_multiple_destinations(self):
+        sender_key = PrivateKey.from_int(1, network=EthereumMainNet)
+        pseudo_input = UTXO(
+            None,
+            None,
+            _network=EthereumMainNet,
+            _internal_param_do_not_use={
+                "address": sender_key.public_key.address(),
+                "private_key": sender_key.to_hex(),
+                "amount": 0,
+                "height": 0,
+            },
+        )
+        destinations = [
+            Destination(
+                "0xea83c649dd49a6ec44c9e2943eb673a8fbb7bab6",
+                0.00000002,
+                EthereumMainNet,
+            ),
+            Destination(
+                "0xd73e8e2ac0099169e7404f23c6caa94cf1884384",
+                0.00000003,
+                EthereumMainNet,
+            ),
+        ]
+
+        with self.assertRaisesRegex(
+            ValueError, "EVM transactions support exactly one destination"
+        ):
+            create_transaction([pseudo_input], destinations, network=EthereumMainNet)
+
+    def test_005c_destination_accepts_raw_units(self):
+        destination = Destination(
+            "16QaFeudRUt8NYy2yzjm3BMvG4xBbAsBFM",
+            25,
+            BitcoinMainNet,
+            in_standard_units=False,
+        )
+
+        self.assertEqual(destination.amount(in_standard_units=False), 25)
+        self.assertEqual(destination.amount(), 25 / 1e8)
 
     def test_006_internal_legacy_sign(self):
         # This test case tests the internal signing methods to make sure that

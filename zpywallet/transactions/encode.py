@@ -281,6 +281,10 @@ def create_transaction(
 
     # First, construct the raw transacation
     if network.SUPPORTS_EVM:
+        if len(inputs) != 1:
+            raise ValueError("EVM transactions require exactly one funded input")
+        if len(outputs) != 1:
+            raise ValueError("EVM transactions support exactly one destination")
         return create_web3_transaction(
             inputs[0].address(),
             outputs[0].address(),
@@ -378,6 +382,50 @@ def create_transaction(
     )
 
 
+def _normalize_signed_web3_transaction(signed_transaction):
+    if isinstance(signed_transaction, dict):
+        for key in ("raw_transaction", "rawTransaction"):
+            if key in signed_transaction:
+                return _normalize_signed_web3_transaction(signed_transaction[key])
+
+    for attr in ("raw_transaction", "rawTransaction"):
+        if hasattr(signed_transaction, attr):
+            return _normalize_signed_web3_transaction(
+                getattr(signed_transaction, attr)
+            )
+
+    if isinstance(signed_transaction, str):
+        normalized = (
+            signed_transaction[2:]
+            if signed_transaction.startswith("0x")
+            else signed_transaction
+        )
+        bytes.fromhex(normalized)
+        return normalized
+
+    if isinstance(signed_transaction, (bytes, bytearray)):
+        raw_bytes = bytes(signed_transaction)
+        if raw_bytes.startswith(b"0x"):
+            try:
+                return bytes.fromhex(raw_bytes[2:].decode()).hex()
+            except ValueError:
+                pass
+
+        try:
+            decoded = raw_bytes.decode()
+        except UnicodeDecodeError:
+            return raw_bytes.hex()
+
+        normalized = decoded[2:] if decoded.startswith("0x") else decoded
+        try:
+            bytes.fromhex(normalized)
+        except ValueError:
+            return raw_bytes.hex()
+        return normalized
+
+    raise TypeError("Unsupported signed web3 transaction payload")
+
+
 def create_web3_transaction(
     a_from, a_to, amount, private_key, fullnodes, gas, chain_id
 ):
@@ -437,7 +485,9 @@ def create_web3_transaction(
             sign_method = getattr(w3.eth.account, "sign_transaction", None)
             if sign_method is None:
                 sign_method = w3.eth.account.signTransaction
-            return sign_method(transaction, normalize_private_key(private_key))
+            return _normalize_signed_web3_transaction(
+                sign_method(transaction, normalize_private_key(private_key))
+            )
         except Exception:
             pass
     raise RuntimeError("Cannot sign web3 transaction (try specifying different nodes)")

@@ -49,6 +49,9 @@
 - `done` `security/validation/data integrity issue`: use Web3 receipts for confirmed EVM history so cached gas and total fees reflect actual execution rather than the submitted gas limit.
 - `done` `missing in-scope feature`: route BTC-like wallet change to a monitored internal/change branch and include change-branch keys when later spending change UTXOs.
 - `done` `broken flow`: fix BIP32 watch-only/public child derivation and xpub round-tripping so the documented public-only path matches the private derivation path for non-hardened children.
+- `done` `broken flow`: normalize EVM signed transactions into raw hex strings and reject multi-destination EVM sends instead of silently discarding extra outputs.
+- `done` `security/validation/data integrity issue`: store `Destination` values internally as integer sats/wei, add explicit raw-unit support, and keep wallet change calculation in base units end to end.
+- `done` `developer experience issue affecting completion`: align the public docs with the current API surface (`sat_feerate()`, `CryptoClient`, raw-unit destination examples, and the updated limitations text).
 - `out_of_scope` `polish`: wallet construction still spends several seconds deriving default-gap addresses, but reducing that further now would require a larger wallet-state redesign or protobuf persistence change than the current repository evidence justifies.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
@@ -132,21 +135,29 @@
 - `./.venv/bin/python - <<'PY' ... Wallet(..., change_gap_limit in {1,20,1000}) ... PY` -> success; wallet construction took about `4.88s`, `4.91s`, and `6.92s` respectively, so the remaining runtime cost is measurable but not a broken flow by itself
 - `./.venv/bin/python -m tox -e flake8` -> success on the final tree
 - `./.venv/bin/python -m pytest tests -q` -> success on the final tree (`118 passed, 1 warning in 529.61s`)
+- `./.venv/bin/python -m pytest tests/test_08_transaction.py -k 'test_005_eth_sign or test_005b_evm_transactions_reject_multiple_destinations' -q` -> success after the EVM signing-output fix (`2 passed, 10 deselected, 1 warning in 6.90s`)
+- `./.venv/bin/python -m pytest tests/test_07_broadcast.py -k 'test_009_eth_generic_broadcast_uses_modern_web3_api or test_011_eth_tx_hash_accepts_signed_transaction_like_objects or test_012_eth_broadcast_normalizes_signed_transaction_objects' -q` -> success after the EVM broadcast normalization fix (`3 passed, 8 deselected, 1 warning in 6.99s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/transactions/encode.py zpywallet/broadcast/eth/all.py zpywallet/broadcast/eth/fullnode.py tests/test_07_broadcast.py tests/test_08_transaction.py` -> success after the EVM flow fix
+- `./.venv/bin/python -m pytest tests/test_08_transaction.py -k 'test_005_eth_sign or test_005b_evm_transactions_reject_multiple_destinations or test_005c_destination_accepts_raw_units' -q` -> success after the raw-unit destination change (`3 passed, 10 deselected, 1 warning in 5.42s`)
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py -k 'test_010_wallet_calculate_change_uses_internal_branch or test_011_wallet_change_uses_raw_unit_arithmetic' -q` -> success after the raw-unit change (`2 passed, 12 deselected, 1 warning in 18.08s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/destination.py zpywallet/wallet.py zpywallet/transactions/encode.py zpywallet/broadcast/eth/all.py zpywallet/broadcast/eth/fullnode.py tests/test_06_wallet.py tests/test_07_broadcast.py tests/test_08_transaction.py` -> success after the raw-unit and docs-alignment changes
+- `./.venv/bin/python -m tox -e docs` -> success after the raw-unit docs update
+- `./.venv/bin/python -m tox -e docs` -> success after the usage-guide/API-name cleanup
 
 ## Current Iteration Summary
-- Chosen task: repair the documented watch-only/public BIP32 derivation path.
-- In-scope evidence: README and `zpywallet/utils/bip32.py` explicitly describe public-only child derivation for insecure/server-side use, and the repo backlog had already identified that flow as broken.
+- Chosen task: finish the remaining money- and EVM-transaction integrity gaps still visible in the source and docs.
+- In-scope evidence: `Destination` still documented raw-unit handling as a limitation in `docs/source/bugs.rst`, the EVM encoder still returned provider-specific signed-transaction wrappers while the broadcast layer expected raw hex, and the usage docs still referenced outdated API names and imports.
 - Changes made:
-- fixed `HDWallet.get_child()` so watch-only derivation uses valid secp256k1 generator constants and real point addition instead of crashing on the public-only branch
-- fixed `HDWallet.load_xkey()` and the `bytes_int()` helper so valid xpub/xprv payloads round-trip back into `HDWallet` instances
-- propagated the selected network when reconstructing public keys from points/serialized xkeys and added a regression proving a watch-only account derives the same non-hardened child as the private path
-- Remaining work: no higher-priority broken core flows remain in the current repository-supported scope; the only open note is optional wallet-init/runtime optimization that would require a broader persisted-state redesign.
+- normalized EVM signed-transaction objects/dicts/bytes into raw hex, rejected multi-destination EVM sends, and taught the ETH broadcast/hash helpers to accept modern Web3 signed-transaction payloads
+- moved `Destination` storage to integer base units, added explicit `in_standard_units=False` support for sats/wei, and kept proportional fee/change handling in `Wallet._calculate_change()` entirely in raw units
+- updated the usage and limitations docs so the published examples match the current API (`CryptoClient`, `sat_feerate()`, raw-unit sends, and the current limitations text)
+- Remaining work: no new broken core flows were found in the edited wallet/EVM/docs surfaces after targeted `pytest`, `flake8`, and `tox -e docs` runs; the next conservative step would be a fresh full-suite rerun on this exact patchset if more time is available.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
 - This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source.
-- No remaining source blockers were found for the repository's current documented wallet-library scope after the final full `pytest` and `flake8` passes.
+- No remaining source blockers were found in the newly touched wallet/EVM/docs paths after the targeted `pytest`, `flake8`, and `docs` passes; a fresh full `pytest tests -q` rerun on this exact patchset has not been completed yet because the suite is slow and includes live-provider coverage.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.
