@@ -33,6 +33,7 @@
 - Query balances, UTXOs, fees, and address history through providers.
 
 ## Backlog
+- `done` `test/build/lint/type failure`: harden the mock HTTP test server shutdown path and socket reuse so address-provider tests stop flaking under CI timing and port reuse.
 - `done` `test/build/lint/type failure`: make GitHub Actions coverage upload conditional so missing `CODECOV_TOKEN` no longer fails the entire matrix after successful tox runs.
 - `done` `broken flow`: fix transaction creation loop in `zpywallet/transactions/encode.py` so list inputs can be signed.
 - `done` `developer experience issue affecting completion`: create a local `.venv` and install repo-declared tooling so runtime validation works under PEP 668.
@@ -72,14 +73,22 @@
 - `.venv/bin/python -m pytest tests -q` -> success on current tree (`105 passed, 1 warning in 211.38s`)
 - `.venv/bin/python -m tox -e flake8` -> success on current tree
 - `.venv/bin/python -m tox -e docs` -> success on current tree
+- `env GITHUB_ACTIONS=true .venv/bin/python -m tox -vv` -> failed before fix; surfaced a flaky mock-server failure in `tests/test_09_address.py::TestAddress::test_000_btc_blockcypher_address` caused by port reuse and an ineffective shutdown request
+- `.venv/bin/python -m pytest tests/test_09_address.py::TestAddress::test_000_btc_blockcypher_address -q` -> success after mock-server fix (`1 passed, 1 warning in 15.30s`)
+- `.venv/bin/python -m pytest tests/test_09_address.py -q` -> success after mock-server fix (`7 passed, 1 warning in 24.70s`)
+- `env GITHUB_ACTIONS=true .venv/bin/python -m tox -e py311,flake8,docs` -> success after mock-server fix (`py311`, `flake8`, and `docs` all passed)
+- `.venv/bin/python -m pytest tests/test_09_address.py -q` -> success on current tree (`7 passed, 1 warning in 15.46s`)
+- `env GITHUB_ACTIONS=true .venv/bin/python -m tox -e py311,flake8,docs` -> success on current tree (`py311`, `flake8`, and `docs` all passed in 240.83s`)
+- `.venv/bin/python -m pytest tests -q` -> success on current tree (`105 passed, 1 warning in 226.81s`)
+- `env GITHUB_ACTIONS=true .venv/bin/python -m tox -e py311,flake8,docs` -> success on current tree (`py311`, `flake8`, and `docs` all passed in 311.79s`)
 
 ## Current Iteration Summary
-- Chosen task: verify whether any further in-scope work remained after the CI workflow fix by rerunning the full repository-native validation stack and rechecking unfinished-work markers.
-- In-scope evidence: `README.rst`, `tox.ini`, `tests/`, and `.github/workflows/commit.yml` define the completion bar for this library as passing tests, lint, and docs for the documented wallet, transaction, and provider flows.
+- Chosen task: verify the current tree against the repo-native completion bar after the CI flake fix, and confirm whether any justified in-scope work remains.
+- In-scope evidence: `README.rst`, `tox.ini`, `.github/workflows/commit.yml`, and the existing tests define this library's completion bar as passing test, lint, and docs flows for the documented wallet, transaction, provider, and packaging paths.
 - Changes made:
-  - reran `.venv/bin/python -m pytest tests -q` on the current tree and confirmed the full suite still passes
-  - reran `.venv/bin/python -m tox -e flake8` and `.venv/bin/python -m tox -e docs` on the current tree and confirmed both pass
-  - rechecked unfinished-work markers and found no new production-path blockers justified by repository evidence
+  - rechecked the current diffs and unfinished-work markers against the documented project scope
+  - reran the full local test suite on the current tree
+  - reran the CI-shaped `py311`, `flake8`, and `docs` tox environments with `GITHUB_ACTIONS=true` on the current tree
 - Remaining work: no additional high-value, in-scope work is justified by the repository evidence in the available environment.
 
 ## Unresolved Blockers
