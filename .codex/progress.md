@@ -60,6 +60,7 @@
 - `done` `developer experience issue affecting completion`: fix the usage guide text so it matches the current wallet API and behavior (`random_address()`, monitored change addresses, and corrected serialization wording).
 - `done` `security/validation/data integrity issue`: fix hash-only address decoding and mixed spent/unspent wallet output enumeration so `PublicKey.from_address()` works for base58/bech32 inputs and `Wallet.get_utxos(only_unspent=False)` no longer misindexes or crashes.
 - `done` `security/validation/data integrity issue`: replace the no-op low-level BTC signing tests with real manual UTXO fixtures so legacy, segwit, mixed-input, and explicit-change signing paths are actually exercised.
+- `done` `broken flow`: make BTC wallet fee handling keep caller destination lists immutable, honor `FeePolicy.PROPORTIONAL` in the final signed outputs, and allow exact-spend/no-change transactions instead of rejecting them.
 - `done` `developer experience issue affecting completion`: perform a final repository audit against README, CI, tests, and unfinished-work markers on a clean baseline and confirm that no additional in-scope source change is justified.
 - `out_of_scope` `polish`: wallet construction still spends several seconds deriving default-gap addresses, but reducing that further now would require a larger wallet-state redesign or protobuf persistence change than the current repository evidence justifies.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
@@ -217,23 +218,32 @@
 - `./.venv/bin/python -m tox -e docs` -> success on the current tree (`docs: OK`)
 - `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current tree; release artifacts still build and pass metadata validation cleanly
 - `git status --short --branch` -> clean worktree before updating this progress file (`ahead 16`)
+- `git add -A -- . ':(exclude)agents.md' ':(exclude)AGENTS.md' && git commit -m 'chore: baseline before autonomous work'` -> success; captured the carried-over progress-file delta before making new source changes (`ahead 17`)
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed again on the live tree; this pass surfaced a still-live wallet fee/change defect in source inspection rather than a new TODO marker
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py -q -k 'test_006_wallet_create_transaction_executes_btc_flow or test_010_wallet_calculate_change_uses_internal_branch or test_011_wallet_change_uses_raw_unit_arithmetic or test_013_wallet_create_transaction_applies_proportional_fee_outputs or test_014_wallet_create_transaction_allows_exact_spend_without_change'` -> success after the wallet fee/change fix (`5 passed, 13 deselected, 1 warning in 75.01s`)
+- `./.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success after the wallet fee/change fix (`13 passed, 1 warning in 7.23s`)
+- `./.venv/bin/python -m tox -e flake8` -> success after the wallet fee/change fix (`flake8: OK`)
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py -q -k 'not test_003_wallet_broadcast'` -> manually stopped after about 3 minutes while still CPU-bound; retained the narrower passing wallet regressions instead of waiting on another slow duplicate suite run
+- `./.venv/bin/python -m pytest tests -q` -> success on the wallet fee/change tree (`129 passed, 1 warning in 608.18s`)
+- `./.venv/bin/python -m tox -e docs` -> success on the wallet fee/change tree (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the wallet fee/change tree; release artifacts still build and pass metadata checks cleanly
 
 ## Current Iteration Summary
-- Chosen task: independently re-audit the current tree and verify that no new in-scope implementation work remains.
-- In-scope evidence: the repository is a packaged Python wallet library, so the highest-value remaining work after the earlier fixes was to confirm supported library flows and release-validation gates still pass on the live source tree.
+- Chosen task: repair the remaining BTC wallet fee/change path so supported destination fee policies and exact-spend transactions behave correctly through `Wallet.create_transaction()`.
+- In-scope evidence: `Destination.fee_policy()` and the public wallet send API are part of the repository’s current library surface, and source inspection showed `_calculate_change()` adjusted outputs locally but `Wallet.create_transaction()` still signed the original caller list.
 - Changes made:
-- re-read the repository evidence (`AGENTS.md`, `README.rst`, packaging metadata, `tox.ini`, and GitHub workflows) to confirm the intended scope and native development workflow directly from source
-- re-checked unfinished-work markers in tracked source and verified that the remaining hits are abstract guards, provider fallbacks, or comments rather than supported-flow gaps
-- reran the high-signal validations on the live tree: full `pytest`, `tox -e flake8`, `tox -e docs`, and release build plus `twine check`
-- left repository source files unchanged because the current audit did not expose any new broken core flow, missing supported feature, or validation failure
-- Remaining work: none in scope beyond the already documented out-of-scope polish and environment limitations around unavailable extra Python interpreters for the full CI matrix.
+- added wallet helpers to estimate BTC transaction size and apply proportional fee reductions exactly in raw units without mutating the caller’s `destinations` list
+- changed `_calculate_change()` to return the adjusted destination set plus any change output, so the final low-level signer uses the same outputs that the fee/change calculation validated
+- made the BTC send path fall back to a no-change transaction when inputs cover the intended outputs plus fee but not an additional change output
+- extended wallet tests to cover proportional-fee output adjustment end to end, exact-spend/no-change sends, immutable caller destinations, and the updated helper behavior
+- Remaining work: no new in-scope blocker is currently known beyond the existing out-of-scope polish and environment limits already documented below.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
 - This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source.
 - The full local `tox` interpreter matrix cannot be rerun end to end in this container without additional Python runtimes (`3.10`, `3.12`, `3.13`, `3.14`), but that is an environment limitation rather than a source blocker.
-- No remaining in-scope implementation blocker is known after the final audit.
+- No remaining in-scope implementation blocker is known after the latest wallet-core fix and validation pass.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.

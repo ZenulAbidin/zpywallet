@@ -309,15 +309,23 @@ class TestWallet(unittest.TestCase):
         inputs = [
             SimpleNamespace(amount=lambda in_standard_units=False: 50000),
         ]
-        destinations = [
-            Destination(source_address, 0.0001, BitcoinSegwitMainNet),
-            Destination(source_address, 0, BitcoinSegwitMainNet),
-        ]
+        destinations = [Destination(source_address, 0.0001, BitcoinSegwitMainNet)]
 
-        with patch("zpywallet.wallet.create_transaction", return_value="00"):
-            with patch("zpywallet.wallet.transaction_size_simple", return_value=100):
-                change = wallet._calculate_change(inputs, destinations, fee_rate=1)
+        with patch(
+            "zpywallet.wallet.create_transaction",
+            side_effect=lambda _inputs, outputs, **kwargs: f"len-{len(outputs)}",
+        ):
+            with patch(
+                "zpywallet.wallet.transaction_size_simple",
+                side_effect=lambda raw: {"len-1": 90, "len-2": 100}[raw],
+            ):
+                adjusted_destinations, change = wallet._calculate_change(
+                    inputs, destinations, fee_rate=1
+                )
 
+        self.assertEqual(
+            [d.amount(in_standard_units=False) for d in adjusted_destinations], [10000]
+        )
         self.assertEqual(change.address(), change_address)
         self.assertNotIn(change.address(), wallet.addresses())
 
@@ -343,12 +351,22 @@ class TestWallet(unittest.TestCase):
             )
         ]
 
-        with patch("zpywallet.wallet.create_transaction", return_value="00"):
-            with patch("zpywallet.wallet.transaction_size_simple", return_value=100):
-                change = wallet._calculate_change(inputs, destinations, fee_rate=1)
+        with patch(
+            "zpywallet.wallet.create_transaction",
+            side_effect=lambda _inputs, outputs, **kwargs: f"len-{len(outputs)}",
+        ):
+            with patch(
+                "zpywallet.wallet.transaction_size_simple",
+                side_effect=lambda raw: {"len-1": 100, "len-2": 134}[raw],
+            ):
+                adjusted_destinations, change = wallet._calculate_change(
+                    inputs, destinations, fee_rate=1
+                )
 
-        self.assertIsNotNone(change)
-        self.assertEqual(change.amount(in_standard_units=False), 50)
+        self.assertIsNone(change)
+        self.assertEqual(
+            [d.amount(in_standard_units=False) for d in adjusted_destinations], [49900]
+        )
 
     def test_012_wallet_get_utxos_can_include_spent_outputs(self):
         wallet = Wallet(
@@ -416,3 +434,111 @@ class TestWallet(unittest.TestCase):
             elapsed = time.monotonic() - start
 
         self.assertLess(elapsed, 0.4)
+
+    def test_013_wallet_create_transaction_applies_proportional_fee_outputs(self):
+        wallet = Wallet(
+            BitcoinSegwitMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1,
+        )
+        source_address = wallet.addresses()[0]
+        destinations = [
+            Destination(
+                source_address,
+                950,
+                BitcoinSegwitMainNet,
+                fee_policy=FeePolicy.PROPORTIONAL,
+                in_standard_units=False,
+            )
+        ]
+        fake_utxo = UTXO(
+            None,
+            None,
+            _network=BitcoinSegwitMainNet,
+            _internal_param_do_not_use={
+                "txid": "22" * 32,
+                "index": 0,
+                "amount": 1000,
+                "address": source_address,
+                "height": 1,
+            },
+        )
+        captured_outputs = []
+
+        def fake_create_transaction(_inputs, outputs, **kwargs):
+            captured_outputs.append(
+                [o.amount(in_standard_units=False) for o in outputs]
+            )
+            return f"len-{len(outputs)}"
+
+        with patch.object(wallet, "get_utxos", return_value=[fake_utxo]):
+            with patch(
+                "zpywallet.wallet.create_transaction",
+                side_effect=fake_create_transaction,
+            ):
+                with patch(
+                    "zpywallet.wallet.transaction_size_simple",
+                    side_effect=lambda raw: {"len-1": 100, "len-2": 120}[raw],
+                ):
+                    signed = wallet.create_transaction(
+                        "zpywallet", destinations, fee_rate=1
+                    )
+
+        self.assertEqual(signed, "len-1")
+        self.assertEqual(captured_outputs[-1], [900])
+        self.assertEqual(destinations[0].amount(in_standard_units=False), 950)
+
+    def test_014_wallet_create_transaction_allows_exact_spend_without_change(self):
+        wallet = Wallet(
+            BitcoinSegwitMainNet,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus",
+            "zpywallet",
+            receive_gap_limit=1,
+        )
+        source_address = wallet.addresses()[0]
+        destinations = [
+            Destination(
+                source_address,
+                900,
+                BitcoinSegwitMainNet,
+                in_standard_units=False,
+            )
+        ]
+        fake_utxo = UTXO(
+            None,
+            None,
+            _network=BitcoinSegwitMainNet,
+            _internal_param_do_not_use={
+                "txid": "33" * 32,
+                "index": 0,
+                "amount": 1000,
+                "address": source_address,
+                "height": 1,
+            },
+        )
+        captured_outputs = []
+
+        def fake_create_transaction(_inputs, outputs, **kwargs):
+            captured_outputs.append(
+                [o.amount(in_standard_units=False) for o in outputs]
+            )
+            return f"len-{len(outputs)}"
+
+        with patch.object(wallet, "get_utxos", return_value=[fake_utxo]):
+            with patch(
+                "zpywallet.wallet.create_transaction",
+                side_effect=fake_create_transaction,
+            ):
+                with patch(
+                    "zpywallet.wallet.transaction_size_simple",
+                    side_effect=lambda raw: {"len-1": 100, "len-2": 120}[raw],
+                ):
+                    signed = wallet.create_transaction(
+                        "zpywallet", destinations, fee_rate=1
+                    )
+
+        self.assertEqual(signed, "len-1")
+        self.assertEqual(captured_outputs[-1], [900])
+        self.assertEqual(len(destinations), 1)
+        self.assertEqual(destinations[0].amount(in_standard_units=False), 900)

@@ -607,68 +607,102 @@ class Wallet:
                 fullnode_endpoints.extend(eth_nodes)
             return fullnode_endpoints
 
-    def _calculate_change(self, inputs, destinations, fee_rate):
+    def _estimate_transaction_size(self, inputs, destinations):
         temp_transaction = create_transaction(
             inputs, destinations, network=self._network
         )
-        size = transaction_size_simple(temp_transaction)
-        total_inputs = sum([i.amount(in_standard_units=False) for i in inputs])
-        total_outputs = sum([o.amount(in_standard_units=False) for o in destinations])
+        return transaction_size_simple(temp_transaction)
+
+    def _apply_proportional_fee(self, destinations, fee_delta):
         fee_proportional_outputs = [
             o for o in destinations if o.fee_policy() == FeePolicy.PROPORTIONAL
         ]
+        if not fee_proportional_outputs:
+            return list(destinations)
 
-        if total_inputs < total_outputs + size * fee_rate:
-            if fee_proportional_outputs:
-                proportional_fee = int(
-                    math.ceil((size * fee_rate) / len(fee_proportional_outputs))
+        base_reduction, remainder = divmod(
+            fee_delta, len(fee_proportional_outputs)
+        )
+        proportional_index = 0
+        adjusted_destinations = []
+        for destination in destinations:
+            if destination.fee_policy() != FeePolicy.PROPORTIONAL:
+                adjusted_destinations.append(destination)
+                continue
+
+            reduction = base_reduction + (
+                1 if proportional_index < remainder else 0
+            )
+            adjusted_amount = (
+                destination.amount(in_standard_units=False) - reduction
+            )
+            if adjusted_amount < 0:
+                raise ValueError(
+                    "Not enough balance for this transaction "
+                    "(are you trying to send dust amounts?)"
                 )
-                old_destinations = destinations
-                destinations = []
-                for o in old_destinations:
-                    if o.fee_policy() == FeePolicy.PROPORTIONAL:
-                        adjusted_amount = o.amount(in_standard_units=False) - proportional_fee
-                        if adjusted_amount < 0:
-                            raise ValueError(
-                                "Not enough balance for this transaction "
-                                "(are you trying to send dust amounts?)"
-                            )
-                        destinations.append(
-                            Destination(
-                                o.address(),
-                                adjusted_amount,
-                                self._network,
-                                fee_policy=o.fee_policy(),
-                                in_standard_units=False,
-                            )
-                        )
-                    else:
-                        destinations.append(o)
-            else:
-                raise ValueError("Not enough balance for this transaction")
+            adjusted_destinations.append(
+                Destination(
+                    destination.address(),
+                    adjusted_amount,
+                    self._network,
+                    fee_policy=destination.fee_policy(),
+                    in_standard_units=False,
+                )
+            )
+            proportional_index += 1
 
-        # If after applying proportional fee scaling we STILL don't have
-        # enough balance, then that means the outputs are greater than the
-        # inputs (possibly a dust input set). In this case, the total_outputs
-        # is most likely negative.
-        total_outputs = sum([o.amount(in_standard_units=False) for o in destinations])
-        if total_inputs < total_outputs + size * fee_rate:
+        return adjusted_destinations
+
+    def _calculate_change(self, inputs, destinations, fee_rate):
+        total_inputs = sum([i.amount(in_standard_units=False) for i in inputs])
+        working_destinations = list(destinations)
+        total_outputs = sum(
+            [o.amount(in_standard_units=False) for o in working_destinations]
+        )
+        change_address = self._random_change_address()
+        placeholder_change = Destination(
+            change_address, 0, self._network, in_standard_units=False
+        )
+
+        size_with_change = self._estimate_transaction_size(
+            inputs, working_destinations + [placeholder_change]
+        )
+        required_with_change = total_outputs + size_with_change * fee_rate
+        if total_inputs >= required_with_change:
+            change = total_inputs - required_with_change
+            return (
+                working_destinations,
+                None
+                if change <= 0
+                else Destination(
+                    change_address,
+                    change,
+                    self._network,
+                    in_standard_units=False,
+                ),
+            )
+
+        size_without_change = self._estimate_transaction_size(
+            inputs, working_destinations
+        )
+        required_without_change = total_outputs + size_without_change * fee_rate
+        if total_inputs >= required_without_change:
+            return working_destinations, None
+
+        working_destinations = self._apply_proportional_fee(
+            working_destinations, required_without_change - total_inputs
+        )
+        total_outputs = sum(
+            [o.amount(in_standard_units=False) for o in working_destinations]
+        )
+        if total_inputs < total_outputs + size_without_change * fee_rate:
             raise ValueError(
                 "Not enough balance for this transaction "
                 "(are you trying to send dust amounts?)"
             )
 
-        change = total_inputs - total_outputs - size * fee_rate
-        return (
-            None
-            if change <= 0
-            else Destination(
-                self._random_change_address(),
-                change,
-                self._network,
-                in_standard_units=False,
-            )
-        )
+        return working_destinations, None
 
     # Fee rate is in the unit used by the network, ie. vbytes, bytes or wei
     def create_transaction(
@@ -740,20 +774,14 @@ class Wallet:
 
         inputs = self._to_human_friendly_utxo(inputs, private_keys)
 
-        # Depending on the size of the transactions, we may need to add a
-        # change output. Otherwise, the remaining balance is going to the miner.
-        # This is not the real change input, we need to find the size of the
-        # transaction first.
-        change = Destination(
-            self._random_change_address(), 0, self._network, in_standard_units=False
+        adjusted_destinations, change = self._calculate_change(
+            inputs, destinations, fee_rate
         )
-        destinations_without_change = destinations[:]
-        destinations_without_change.append(change)
-
-        change = self._calculate_change(inputs, destinations_without_change, fee_rate)
         if change:
-            destinations.append(change)
-        return create_transaction(inputs, destinations, network=self._network)
+            adjusted_destinations.append(change)
+        return create_transaction(
+            inputs, adjusted_destinations, network=self._network
+        )
 
     def broadcast_transaction(self, transaction):
         """
