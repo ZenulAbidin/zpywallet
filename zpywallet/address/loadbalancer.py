@@ -41,7 +41,7 @@ class CryptoClient(AddressProvider):
 
         if use_database:
             for endpoint in fullnode_endpoints:
-                with suppress(ValueError):
+                with suppress(ValueError, NetworkException):
                     self.cache_provider_list.append(
                         RPCClient(
                             addresses,
@@ -53,7 +53,7 @@ class CryptoClient(AddressProvider):
                         )
                     )
 
-                with suppress(ValueError):
+                with suppress(ValueError, NetworkException):
                     self.cache_provider_list.append(
                         Web3Client(
                             addresses,
@@ -66,7 +66,7 @@ class CryptoClient(AddressProvider):
                     )
 
             for endpoint in esplora_endpoints:
-                with suppress(ValueError):
+                with suppress(ValueError, NetworkException):
                     self.cache_provider_list.append(
                         EsploraClient(
                             addresses,
@@ -78,7 +78,7 @@ class CryptoClient(AddressProvider):
                         )
                     )
 
-            with suppress(ValueError):
+            with suppress(ValueError, NetworkException):
                 self.cache_provider_list.append(
                     BlockstreamClient(
                         addresses,
@@ -89,7 +89,7 @@ class CryptoClient(AddressProvider):
                     )
                 )
 
-            with suppress(ValueError):
+            with suppress(ValueError, NetworkException):
                 self.cache_provider_list.append(
                     MempoolSpaceClient(
                         addresses,
@@ -101,7 +101,7 @@ class CryptoClient(AddressProvider):
                 )
 
         for token in blockcypher_tokens:
-            with suppress(ValueError):
+            with suppress(ValueError, NetworkException):
                 self.provider_list.append(
                     BlockcypherClient(
                         addresses,
@@ -113,7 +113,7 @@ class CryptoClient(AddressProvider):
                 )
 
         # Blockcypher without any token
-        with suppress(ValueError):
+        with suppress(ValueError, NetworkException):
             self.provider_list.append(
                 BlockcypherClient(
                     addresses,
@@ -147,6 +147,21 @@ class CryptoClient(AddressProvider):
                 pass
 
             raise NetworkException("Failed to populate database - all providers failed")
+
+    def get_balance(self):
+        for provider in self.cache_provider_list:
+            try:
+                return provider.get_balance()
+            except NetworkException:
+                continue
+
+        for provider in self.provider_list:
+            try:
+                return provider.get_balance()
+            except NetworkException:
+                continue
+
+        return super().get_balance()
 
     def get_block_height(self):
         """
@@ -195,7 +210,7 @@ class CryptoClient(AddressProvider):
             else max([tx.height for tx in self.transactions] + [-1])
         )
 
-        for provider in self.provider_list:
+        for provider in self.cache_provider_list + self.provider_list:
             provider.transactions = self.transactions
             provider.height = min_height
             try:

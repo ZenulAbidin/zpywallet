@@ -26,7 +26,9 @@ class TestWallet(unittest.TestCase):
             receive_gap_limit=1,
         )
         exported_wallet = wallet_1.serialize()
-        _ = Wallet.deserialize(exported_wallet, "zpywallet")
+        restored_wallet = Wallet.deserialize(exported_wallet, "zpywallet")
+        self.assertIsNotNone(restored_wallet)
+        self.assertEqual(restored_wallet.addresses(), wallet_1.addresses())
 
     def test_001_wallet_transaction_history(self):
         """Test using the wallet."""

@@ -293,6 +293,10 @@ class Wallet:
         hdwallet = HDWallet.from_mnemonic(mnemonic=seed_phrase, network=network)
 
         self.encrypted_private_keys = []
+        if not self.container.addresses:
+            addresses = self.container.addresses
+        else:
+            addresses = None
         for i in range(0, self.container.receive_gap_limit):
             privkey = hdwallet.get_child_for_path(
                 f"{self.container.derivation_path}/0/{i}"
@@ -300,12 +304,14 @@ class Wallet:
             self.encrypted_private_keys.append(
                 privkey.to_hex() if network.SUPPORTS_EVM else privkey.to_wif()
             )
-            pubkey = privkey.public_key
+            if addresses is not None:
+                pubkey = privkey.public_key
 
-            # Add an Address
-            address = self.container.addresses.add()
-            address.address = pubkey.address()
-            address.pubkey = pubkey.to_hex()
+                # Rebuild addresses only when the serialized wallet did not
+                # contain them.
+                address = addresses.add()
+                address.address = pubkey.address()
+                address.pubkey = pubkey.to_hex()
         self.encrypted_private_keys = encrypt_str(
             json.dumps(self.encrypted_private_keys), password
         )
@@ -314,6 +320,7 @@ class Wallet:
         del password
 
         self._setup_client(max_cycles=max_cycles)
+        return self
 
     def network(self):
         """
@@ -350,10 +357,17 @@ class Wallet:
         for token in self.container.blockcypher_tokens:
             blockcypher_tokens.append(token)
 
+        use_database = False
+        if self._network.SUPPORTS_EVM:
+            use_database = True
+            if not fullnode_endpoints and self._network.COIN == "ETH":
+                fullnode_endpoints.extend(eth_nodes)
+
         kwargs = {
             "fullnode_endpoints": fullnode_endpoints,
             "esplora_endpoints": esplora_endpoints,
             "blockcypher_tokens": blockcypher_tokens,
+            "use_database": use_database,
         }
 
         self.client = CryptoClient(

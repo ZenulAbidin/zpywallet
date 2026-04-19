@@ -95,6 +95,8 @@ class EsploraClient(AddressProvider):
             return len(data) > 0
         except requests.exceptions.RetryError:
             raise NetworkException("Failed to verify chain type (max retries failed)")
+        except requests.exceptions.RequestException as e:
+            raise NetworkException(f"Failed to verify chain type: {e}")
         except requests.exceptions.JSONDecodeError:
             raise NetworkException(
                 "Failed to verify chain type (response body is not JSON)"

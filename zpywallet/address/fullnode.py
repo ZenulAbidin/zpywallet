@@ -59,7 +59,7 @@ class RPCClient(AddressProvider):
         new_element = wallet_pb2.Transaction()
         new_element.txid = element["txid"]
         new_element.confirmed = bool(block_height)
-        new_element.block_height = block_height
+        new_element.height = block_height or 0
 
         new_element.timestamp = (
             element.get("blocktime")
@@ -80,7 +80,6 @@ class RPCClient(AddressProvider):
 
         for vin in element["vin"]:
             txinput = new_element.btclike_transaction.inputs.add()
-            txinput.amount = int(vin["value"] * 1e8)
             if is_coinbase:
                 continue
             txinput.txid = vin["txid"]
@@ -95,17 +94,25 @@ class RPCClient(AddressProvider):
         total_inputs = sum([a.amount for a in new_element.btclike_transaction.inputs])
         total_outputs = sum([a.amount for a in new_element.btclike_transaction.outputs])
 
-        new_element.total_fee = total_inputs - total_outputs
-
-        # The vsize was stored in the fee field.
-        new_element.btclike_transaction.fee = int(
-            (total_inputs - total_outputs) // new_element.btclike_transaction.fee
-        )
+        new_element.total_fee = max(total_inputs - total_outputs, 0)
+        vsize = element.get("vsize") or element.get("size") or 1
+        new_element.btclike_transaction.fee = int(new_element.total_fee // vsize)
         new_element.fee_metric = self.fee_metric
 
         return new_element
 
-    def __init__(self, coin="BTC", chain="main", **kwargs):
+    def __init__(
+        self,
+        addresses,
+        coin="BTC",
+        chain="main",
+        request_interval=(3, 1),
+        transactions=None,
+        **kwargs,
+    ):
+        super().__init__(
+            addresses, request_interval=request_interval, transactions=transactions
+        )
         self.rpc_host = kwargs.get("host") or "127.0.0.1"
         self.rpc_protocol = kwargs.get("protocol") or "http"
         self.rpc_user = kwargs.get("user")
@@ -113,7 +120,6 @@ class RPCClient(AddressProvider):
         self.max_batch = kwargs.get("max_batch") or 150
         self.rpc_threads = kwargs.get("rpc_threads") or 4
         self.db_connection_parameters = kwargs.get("db_connection_parameters")
-        self.transactions = []
 
         use_auth = self.rpc_user or self.rpc_password
 
@@ -135,8 +141,11 @@ class RPCClient(AddressProvider):
         port_map = [[8332, 18332], [9332, 19332], [22555, 445555], [9998, 19998]]
 
         self.rpc_port = kwargs.get("port") or port_map[self.coin][self.chain]
+        auth = ""
+        if use_auth:
+            auth = f"{self.rpc_user}:{self.rpc_password}@"
         self.rpc_url = (
-            f"{self.rpc_host}://{'' if use_auth else self.rpc_user + ':' + self.rpc_password + '@'}"
+            f"{self.rpc_protocol}://{auth}"
             + f"{self.rpc_host}:{self.rpc_port}"
         )
 
@@ -264,7 +273,7 @@ class RPCClient(AddressProvider):
             ]
 
             # The max_batch heere is actually just the number of threads to spawn for the pool
-            with ThreadPoolExecutor(max_batch=self.rpc_threads) as executor:
+            with ThreadPoolExecutor(max_workers=self.rpc_threads) as executor:
                 futures = [
                     executor.submit(
                         self._process_transaction, txes, sql_transaction_storage
@@ -283,10 +292,9 @@ class RPCClient(AddressProvider):
 
     def read_mempool(self):
         with multiprocessing.Pool(1) as pool:
-            transaction_batches = pool.apply(self._internal_mempool_fetch)
+            transaction_batch = pool.apply(self._internal_mempool_fetch)
 
-        for transaction_batch in transaction_batches:
-            self._add_mempool_transactions(transaction_batch)
+        self._add_mempool_transactions(transaction_batch)
 
     def _process_transaction(
         self, txes, sql_transaction_storage: SQLTransactionStorage
@@ -369,38 +377,22 @@ class RPCClient(AddressProvider):
         sql_transaction_storage = SQLTransactionStorage(self.db_connection_parameters)
 
         try:
-            self.height = sql_transaction_storage.get_block_height()
+            current_height = sql_transaction_storage.get_block_height()
+            max_height = self.get_block_height()
 
-            max_height = self._send_rpc_request(
-                "getblockhash", params=[self.min_height]
-            )["result"]
-
-            if not [*range(self.height, max_height + 1)]:
-                return
-
-            # Get the blockchain info to determine the best block height
-            block_hash = self._send_rpc_request("getblockhash", params=[self.height])[
-                "result"
-            ]
-
-            # Iterate through blocks to fetch transactions
-            for block_height in range(self.height, max_height + 1):
-                if not block_hash:
-                    break
-
-                # Verbosity=1 is portable on all blockchains but will cost an
-                # extra RPC batch call to get the raw transactions.
+            for block_height in range(current_height + 1, max_height + 1):
+                block_hash = self._send_rpc_request(
+                    "getblockhash", params=[block_height]
+                )["result"]
                 block = self._send_rpc_request("getblock", params=[block_hash, 1])[
                     "result"
                 ]
-                block_hash = block.get("nextblockhash")
-
-                # Iterate through transactions in the block
                 raw_transactions = [
-                    r
+                    r["result"]
                     for r in self._send_batch_rpc_request(
-                        [("getrawtransaction", [tx[0], 1]) for tx in block["tx"]]
+                        [("getrawtransaction", [txid, 1]) for txid in block["tx"]]
                     )
+                    if r.get("result")
                 ]
                 for raw_transaction in raw_transactions:
                     parsed_transaction = self._clean_tx(

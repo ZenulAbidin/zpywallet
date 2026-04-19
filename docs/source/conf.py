@@ -2,9 +2,11 @@ import os
 import sys
 
 # -- Path setup --------------------------------------------------------------
-sys.path.insert(0, os.path.abspath("."))
-sys.path.insert(0, os.path.abspath("../../zpywallet/"))
-sys.path.insert(0, os.path.abspath("./zpywallet/"))
+DOCS_SOURCE_DIR = os.path.abspath(".")
+REPO_ROOT = os.path.abspath("../..")
+
+sys.path.insert(0, DOCS_SOURCE_DIR)
+sys.path.insert(0, REPO_ROOT)
 
 # -- Project information -----------------------------------------------------
 project = "ZpyWallet"
@@ -32,10 +34,6 @@ html_static_path = ["_static"]
 # -- Options for HTML output -------------------------------------------------
 html_title = "ZPyWallet Documentation"
 # html_logo = '_static/logo.png'
-html_theme_options = {
-    #'logo_only': True,
-    "display_version": False,
-}
 
 # -- Extension configuration -------------------------------------------------
 napoleon_google_docstring = True

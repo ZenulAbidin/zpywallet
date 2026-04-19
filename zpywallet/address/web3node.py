@@ -15,6 +15,17 @@ def deduplicate(elements):
     return reduce(lambda re, x: re + [x] if x not in re else re, elements, [])
 
 
+def add_web3_cache_middleware(middleware_onion):
+    for middleware_name in (
+        "time_based_cache_middleware",
+        "latest_block_based_cache_middleware",
+        "simple_cache_middleware",
+    ):
+        middleware_factory = getattr(middleware, middleware_name, None)
+        if middleware_factory is not None:
+            middleware_onion.add(middleware_factory)
+
+
 class Web3Client:
     """
     A class indexing all transactions in ethereum-like blockchains into
@@ -77,9 +88,7 @@ class Web3Client:
         self.web3 = Web3(Web3.HTTPProvider(kwargs.get("url")))
         # This makes it fetch max<priority>feepergas info faster
         self.web3.eth.set_gas_price_strategy(fast_gas_price_strategy)
-        self.web3.middleware_onion.add(middleware.time_based_cache_middleware)
-        self.web3.middleware_onion.add(middleware.latest_block_based_cache_middleware)
-        self.web3.middleware_onion.add(middleware.simple_cache_middleware)
+        add_web3_cache_middleware(self.web3.middleware_onion)
 
         self.db_connection_parameters = kwargs.get("db_connection_parameters")
         self.transactions = []
@@ -166,7 +175,7 @@ class Web3Client:
 
             # Web3.py stores unconfirmed ETH transactions in "pending".
             max_height = self.get_block_height()
-            for block_number in list(range(self.block_height, max_height + 1)) + [
+            for block_number in list(range(self.height, max_height + 1)) + [
                 "pending"
             ]:
                 block = self.web3.eth.getBlock(block_number, full_transactions=True)

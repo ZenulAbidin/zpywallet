@@ -101,7 +101,7 @@ class BlockcypherClient(AddressProvider):
         super().__init__(
             addresses, request_interval=request_interval, transactions=transactions
         )
-        self.api_key = kwargs.get("blockcypher_token")
+        self.api_key = kwargs.get("blockcypher_token", kwargs.get("token"))
         self.height = -1
         coin_map = {
             "BTC": "btc",
@@ -146,7 +146,7 @@ class BlockcypherClient(AddressProvider):
         try:
             params = None
             if self.api_key:
-                params = {"token", self.api_key}
+                params = {"token": self.api_key}
             response = session.get(url, params=params, timeout=60)
             response.raise_for_status()
             data = response.json()
@@ -182,7 +182,7 @@ class BlockcypherClient(AddressProvider):
         return self.transactions
 
     def _get_one_transaction_history(self, address):
-        params = {"token", self.api_key} if self.api_key else None
+        params = {"token": self.api_key} if self.api_key else None
         interval = 50
 
         # Set a very high UTXO limit for those rare address that have crazy high input/output counts.
