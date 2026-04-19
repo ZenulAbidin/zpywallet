@@ -234,14 +234,25 @@
 - `./.venv/bin/python -m tox -e docs` -> success on the committed tree during the final clean-tree audit (`docs: OK`)
 - `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the committed tree during the final clean-tree audit; release artifacts still build and pass metadata validation cleanly
 - `git status --short --branch` -> tree stayed clean after the final clean-tree audit, before updating this progress file (`ahead 18`)
+- `git add -A -- ':!AGENTS.md' ':!agents.md' && git commit -m "chore: baseline before autonomous work"` -> success; created the required one-time baseline commit for this session before any new modifications (`ahead 19`)
+- `git status --short --branch && sed -n '1,260p' setup.py && sed -n '1,220p' requirements-dev.txt && sed -n '1,220p' requirements.txt` -> reviewed on the clean tree; reconfirmed setuptools packaging, pip requirements workflow, and the current release/runtime dependency set directly from repository files
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed again on the clean tree; remaining hits are exception classes, abstract guards, retry/fallback branches, comments, or test scaffolding rather than a newly justified in-scope blocker
+- `sed -n '1,200p' zpywallet/transactions/decode.py && sed -n '1,220p' zpywallet/mnemonic/mnemonic.py && sed -n '1,200p' zpywallet/errors.py && sed -n '380,520p' zpywallet/transactions/encode.py && sed -n '420,500p' zpywallet/wallet.py` -> reviewed the remaining production-path `pass` sites and confirmed they are exception classes or defensive fallbacks, not live unimplemented core flows
+- `./.venv/bin/python -m pytest tests -q` -> success on the current clean tree (`129 passed, 1 warning in 561.88s`)
+- `ps -eo pid,etime,pcpu,pmem,args | grep '[p]ytest tests -q'` -> confirmed during this session that the long full-suite run stayed CPU-bound rather than hanging while the slow wallet benchmarks were executing
+- `./.venv/bin/python -m tox -e flake8` -> success on the current clean tree (`flake8: OK`)
+- `./.venv/bin/python -m tox -e docs` -> success on the current clean tree (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current clean tree; release artifacts still build and pass metadata validation cleanly
+- `git status --short --branch` -> tree stayed clean after this session's completion audit, before updating this progress file (`ahead 19`)
 
 ## Current Iteration Summary
-- Chosen task: perform a final clean-tree audit on the current committed library to verify that no additional in-scope implementation work remains.
-- In-scope evidence: this repository is a packaged wallet library, so after the latest wallet-core fix the highest-value remaining task was to re-check supported flows, repo-native validation commands, and unfinished-work markers directly on the clean committed tree before terminating.
+- Chosen task: perform another full clean-tree completion audit on the current committed library and only continue coding if repository evidence surfaced a new broken supported flow.
+- In-scope evidence: this repository is a packaged Python HD wallet library with tox/pytest/docs/package workflows, and the highest-value remaining task after the prior wallet-core fixes was to verify on a fresh baseline commit that the declared supported scope still passes repo-native validation and that no production-path unfinished marker now implies more work.
 - Changes made:
+- created the required one-time baseline commit for this session because `.codex/progress.md` was already dirty at turn start
 - re-ran the highest-signal validations on the clean committed tree: full `pytest`, `tox -e flake8`, `tox -e docs`, and package build plus `twine check`
-- re-checked unfinished-work markers on tracked source while excluding generated/build artifacts and found no new supported-path blocker
-- left repository source files unchanged because this audit did not surface another broken core flow, missing supported feature, or validation failure
+- re-checked unfinished-work markers and the remaining production-path `pass` sites on tracked source while excluding generated/build artifacts; no new supported-path blocker was found
+- left repository source files unchanged because this session's audit did not surface another broken core flow, missing supported feature, or validation failure
 - Remaining work: no new in-scope implementation blocker is known beyond the already documented environment limits and explicit out-of-scope boundaries below.
 
 ## Unresolved Blockers
@@ -249,7 +260,7 @@
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
 - This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source.
 - The full local `tox` interpreter matrix cannot be rerun end to end in this container without additional Python runtimes (`3.10`, `3.12`, `3.13`, `3.14`), but that is an environment limitation rather than a source blocker.
-- No remaining in-scope implementation blocker is known after the final clean-tree audit.
+- No remaining in-scope implementation blocker is known after this session's clean-tree completion audit.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.
