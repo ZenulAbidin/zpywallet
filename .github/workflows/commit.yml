@@ -35,6 +35,6 @@ jobs:
 
     - name: Upload coverage reports to Codecov
       if: matrix.python-version == '3.12' && env.CODECOV_TOKEN != ''
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v6
       with:
         token: ${{ env.CODECOV_TOKEN }}
