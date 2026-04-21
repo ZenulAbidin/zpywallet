@@ -31,12 +31,20 @@ class CryptoClient(AddressProvider):
         **kwargs,
     ):
         super().__init__(addresses, transactions=transactions)
+        self.coin = coin.upper()
         self.cache_provider_list = []
         self.provider_list = []
         self.current_index = 0
+        self._database_initialized = False
         fullnode_endpoints = kwargs.get("fullnode_endpoints") or []
         esplora_endpoints = kwargs.get("esplora_endpoints") or []
         blockcypher_tokens = kwargs.get("blockcypher_tokens") or []
+        history_start_block = kwargs.get("history_start_block")
+        history_lookback_blocks = kwargs.get("history_lookback_blocks")
+        allow_unbounded_history_sync = kwargs.get(
+            "allow_unbounded_history_sync", False
+        )
+        include_pending_history = kwargs.get("include_pending_history", False)
         self._db_tempdir = None
         self.db_connection_parameters = None
         if use_database:
@@ -57,6 +65,10 @@ class CryptoClient(AddressProvider):
                             chain,
                             transactions=self.transactions,
                             db_connection_parameters=self.db_connection_parameters,
+                            history_start_block=history_start_block,
+                            history_lookback_blocks=history_lookback_blocks,
+                            allow_unbounded_history_sync=allow_unbounded_history_sync,
+                            include_pending_history=include_pending_history,
                             **endpoint,
                         )
                     )
@@ -69,6 +81,10 @@ class CryptoClient(AddressProvider):
                             chain,
                             transactions=self.transactions,
                             db_connection_parameters=self.db_connection_parameters,
+                            history_start_block=history_start_block,
+                            history_lookback_blocks=history_lookback_blocks,
+                            allow_unbounded_history_sync=allow_unbounded_history_sync,
+                            include_pending_history=include_pending_history,
                             **endpoint,
                         )
                     )
@@ -82,6 +98,7 @@ class CryptoClient(AddressProvider):
                             chain,
                             transactions=self.transactions,
                             db_connection_parameters=self.db_connection_parameters,
+                            history_start_block=history_start_block,
                             **endpoint,
                         )
                     )
@@ -94,6 +111,7 @@ class CryptoClient(AddressProvider):
                         chain,
                         transactions=self.transactions,
                         db_connection_parameters=self.db_connection_parameters,
+                        history_start_block=history_start_block,
                     )
                 )
 
@@ -105,6 +123,7 @@ class CryptoClient(AddressProvider):
                         chain,
                         transactions=self.transactions,
                         db_connection_parameters=self.db_connection_parameters,
+                        history_start_block=history_start_block,
                     )
                 )
 
@@ -145,29 +164,43 @@ class CryptoClient(AddressProvider):
         self.current_index = newindex
 
     def initialize_database(self):
+        last_error = None
         for provider in self.cache_provider_list:
             # They all use the same database so we can just read the mempool
             # from the first one to populate the database.
             try:
                 provider.read_mempool()
+                self._database_initialized = True
                 return
-            except NetworkException:
+            except NetworkException as e:
+                last_error = e
                 continue
 
-        raise NetworkException("Failed to populate database - all providers failed")
+        if last_error is not None:
+            raise last_error
+
+        raise NetworkException("Failed to populate database - no cache providers available")
 
     def get_balance(self):
+        last_error = None
         for provider in self.cache_provider_list:
             try:
                 return provider.get_balance()
-            except NetworkException:
+            except NetworkException as e:
+                last_error = e
                 continue
 
         for provider in self.provider_list:
             try:
                 return provider.get_balance()
-            except NetworkException:
+            except NetworkException as e:
+                last_error = e
                 continue
+
+        if self.coin == "ETH":
+            if last_error is not None:
+                raise last_error
+            raise NetworkException("All address providers failed to get balance")
 
         return super().get_balance()
 
@@ -218,13 +251,21 @@ class CryptoClient(AddressProvider):
             else max([tx.height for tx in self.transactions] + [-1])
         )
 
+        last_error = None
+        provider_succeeded = False
         for provider in self.cache_provider_list + self.provider_list:
             provider.transactions = self.transactions
             provider.height = min_height
             try:
                 provider.get_transaction_history()
                 self.transactions = provider.transactions
+                provider_succeeded = True
                 break
-            except NetworkException:
+            except NetworkException as e:
+                last_error = e
                 continue
+
+        if not provider_succeeded and not self.transactions and last_error is not None:
+            raise last_error
+
         return self.transactions

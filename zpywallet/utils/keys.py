@@ -536,10 +536,39 @@ class PublicKey:
         else:
             try:
                 b = b58decode_check(address)
-                return PublicKey(b[1:], network=network, hashonly=True)
+                if b[0] == network.PUBKEY_ADDRESS:
+                    address_type = "p2pkh"
+                elif b[0] == network.SCRIPT_ADDRESS:
+                    address_type = "p2sh"
+                else:
+                    raise ValueError("Unknown address type")
+                return PublicKey(
+                    b[1:],
+                    network=network,
+                    hashonly=True,
+                    address_type=address_type,
+                )
             except ValueError:
-                b = bech32_decode(network.BECH32_PREFIX, address)[1]
-                return PublicKey(bytes(b), network=network, hashonly=True)
+                witness_version, witness_program = bech32_decode(
+                    network.BECH32_PREFIX, address
+                )
+                if witness_program is None:
+                    raise ValueError("Unknown address type")
+                if witness_version == 0 and len(witness_program) == 20:
+                    address_type = "p2wpkh"
+                elif witness_version == 0 and len(witness_program) == 32:
+                    address_type = "p2wsh"
+                elif witness_version == 1 and len(witness_program) == 32:
+                    address_type = "p2tr"
+                else:
+                    raise ValueError("Unknown address type")
+                return PublicKey(
+                    bytes(witness_program),
+                    network=network,
+                    hashonly=True,
+                    address_type=address_type,
+                    witness_version=witness_version,
+                )
 
     def der_verify(self, message, signature, address):
         """Verifies a signed message.
@@ -658,7 +687,14 @@ class PublicKey:
         signature = encode_der_signature(r, s)
         return coincurve.verify_signature(signature, message, bytes(self))
 
-    def __init__(self, ckey, network=BitcoinSegwitMainNet, hashonly=False):
+    def __init__(
+        self,
+        ckey,
+        network=BitcoinSegwitMainNet,
+        hashonly=False,
+        address_type=None,
+        witness_version=None,
+    ):
         self._key = ckey
         self._network = network
 
@@ -666,6 +702,8 @@ class PublicKey:
         self.ripe_compressed = None
         self.keccak = None
         self.hashonly = False
+        self.address_type = address_type
+        self.witness_version = witness_version
 
         if hashonly:
             # Only public key hash is available, disables a lot of functionality
@@ -818,6 +856,17 @@ class PublicKey:
         # OP_0 (OP_PUSH of scripthash)
         return b"\x00\x20" + self.ripe_compressed
 
+    @staticmethod
+    def _witness_script(witness_version, witness_program):
+        if witness_version is None or witness_version < 0 or witness_version > 16:
+            raise ValueError("Unknown address type")
+        if len(witness_program) < 2 or len(witness_program) > 40:
+            raise ValueError("Unknown address type")
+        version_opcode = b"\x00" if witness_version == 0 else bytes(
+            [0x50 + witness_version]
+        )
+        return version_opcode + bytes([len(witness_program)]) + bytes(witness_program)
+
     def script(self):
         """Returns the appropriate script depending on the network.
         Only applicable to Bitcoin-like blockchains.
@@ -830,10 +879,25 @@ class PublicKey:
         """
         if self.network.SUPPORTS_EVM:
             return None  # Undefined
-        elif self.network.ADDRESS_MODE[0] == "BECH32":
-            return self.p2wsh_script() if self.hashonly else self.p2wpkh_script()
+        if self.hashonly:
+            script_map = {
+                "p2pkh": self.p2pkh_script,
+                "p2sh": self.p2sh_script,
+                "p2wpkh": self.p2wpkh_script,
+                "p2wsh": self.p2wsh_script,
+            }
+            if self.address_type in script_map:
+                return script_map[self.address_type]()
+            if self.address_type == "p2tr":
+                return self._witness_script(
+                    1 if self.witness_version is None else self.witness_version,
+                    self.ripe_compressed,
+                )
+
+        if self.network.ADDRESS_MODE[0] == "BECH32":
+            return self.p2wpkh_script()
         elif self.network.ADDRESS_MODE[0] == "BASE58":
-            return self.p2sh_script() if self.hashonly else self.p2pkh_script()
+            return self.p2pkh_script()
         else:
             return self.p2pk_script()  # Default to P2PK
 
@@ -860,13 +924,12 @@ class PublicKey:
                 else:
                     raise ValueError("Unknown address type")
             except ValueError:
-                b = bech32_decode(network.BECH32_PREFIX, address)[1]
-                if len(b) == 20:
-                    return b"\x00\x14" + bytes(b)
-                elif len(b) == 32:
-                    return b"\x00\x20" + bytes(b)
-                else:
+                witness_version, witness_program = bech32_decode(
+                    network.BECH32_PREFIX, address
+                )
+                if witness_program is None:
                     raise ValueError("Unknown address type")
+                return cls._witness_script(witness_version, witness_program)
 
     def keccak256(self):
         """Return the Keccak-256 hash of the SHA-256 hash of the
@@ -895,8 +958,16 @@ class PublicKey:
                 self.network.NAME, "base58 addresses"
             )
 
-        # Put the version byte in front, 0x00 for Mainnet, 0x6F for testnet
-        version = bytes([self.network.PUBKEY_ADDRESS])
+        if self.hashonly:
+            if self.address_type == "p2pkh":
+                version = bytes([self.network.PUBKEY_ADDRESS])
+            elif self.address_type == "p2sh":
+                version = bytes([self.network.SCRIPT_ADDRESS])
+            else:
+                raise PublicKeyHashException
+        else:
+            # Put the version byte in front, 0x00 for Mainnet, 0x6F for testnet
+            version = bytes([self.network.PUBKEY_ADDRESS])
         return b58encode_check(version + self.hash160(compressed)).decode("utf-8")
 
     def bech32_address(self, compressed=True, witness_version=0):
@@ -923,6 +994,16 @@ class PublicKey:
 
         if not self.network.BECH32_PREFIX:
             raise ValueError("Network does not support Bech32")
+
+        if self.hashonly:
+            if self.address_type not in ("p2wpkh", "p2wsh", "p2tr"):
+                raise PublicKeyHashException
+            witness_version = (
+                self.witness_version
+                if self.witness_version is not None
+                else witness_version
+            )
+
         return bech32_encode(
             self.network.BECH32_PREFIX, witness_version, self.hash160(compressed)
         )
@@ -941,6 +1022,10 @@ class PublicKey:
 
     def address(self, compressed=True, witness_version=0):
         """Returns the address genereated according to the first supported address format by the network."""
+        if self.hashonly and self.address_type in ("p2pkh", "p2sh"):
+            return self.base58_address(compressed)
+        if self.hashonly and self.address_type in ("p2wpkh", "p2wsh", "p2tr"):
+            return self.bech32_address(compressed, witness_version)
         if self.network.ADDRESS_MODE[0] == "BASE58":
             return self.base58_address(compressed)
         elif self.network.ADDRESS_MODE[0] == "BECH32":

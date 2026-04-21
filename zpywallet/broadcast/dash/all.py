@@ -1,10 +1,9 @@
 import asyncio
-import binascii
-import hashlib
 from .blockcypher import broadcast_transaction_dash_blockcypher
 from .fullnode import broadcast_transaction_dash_full_node
 from ...nodes.dash import dash_nodes
 from .._parallel import gather_broadcast_tasks
+from .._tx_hash import tx_hash_bitcoin_like
 
 
 def tx_hash_dash(raw_transaction_hex):
@@ -14,9 +13,7 @@ def tx_hash_dash(raw_transaction_hex):
         raw_transaction_hex (str): The raw transaction in hexadecimal form.
     """
 
-    return binascii.hexlify(
-        hashlib.sha256(hashlib.sha256(raw_transaction_hex.decode()).digest()).digest()
-    )
+    return tx_hash_bitcoin_like(raw_transaction_hex)
 
 
 async def broadcast_transaction_dash(raw_transaction_hex, **kwargs):
@@ -37,4 +34,4 @@ async def broadcast_transaction_dash(raw_transaction_hex, **kwargs):
     for node in dash_nodes:
         awaitables.append(broadcast_transaction_dash_full_node(raw_transaction_hex, **node))
 
-    await gather_broadcast_tasks(awaitables)
+    return await gather_broadcast_tasks(awaitables)

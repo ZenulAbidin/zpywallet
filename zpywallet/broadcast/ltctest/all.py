@@ -1,10 +1,9 @@
 import asyncio
-import binascii
-import hashlib
 from .blockchair import broadcast_transaction_ltctest_blockchair
 from .blockcypher import broadcast_transaction_ltctest_blockcypher
 from .fullnode import broadcast_transaction_ltctest_full_node
 from .._parallel import gather_broadcast_tasks
+from .._tx_hash import tx_hash_bitcoin_like
 
 
 def tx_hash_ltctest(raw_transaction_hex):
@@ -14,9 +13,7 @@ def tx_hash_ltctest(raw_transaction_hex):
         raw_transaction_hex (str): The raw transaction in hexadecimal form.
     """
 
-    return binascii.hexlify(
-        hashlib.sha256(hashlib.sha256(raw_transaction_hex.decode()).digest()).digest()
-    )
+    return tx_hash_bitcoin_like(raw_transaction_hex)
 
 
 async def broadcast_transaction_ltctest(raw_transaction_hex, **kwargs):
@@ -40,4 +37,4 @@ async def broadcast_transaction_ltctest(raw_transaction_hex, **kwargs):
             broadcast_transaction_ltctest_full_node(raw_transaction_hex, **node)
         )
 
-    await gather_broadcast_tasks(awaitables)
+    return await gather_broadcast_tasks(awaitables)

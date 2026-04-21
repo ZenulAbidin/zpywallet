@@ -140,8 +140,12 @@ class SQLTransactionStorage:
             self.create_metadata_table()
             self.create_transactions_table()
             self.create_txos_table()
+            self._ensure_txid_column_capacity()
         except DatabaseError:
-            pass
+            self.rollback()
+            self.disconnect()
+            self.container = None
+            raise
 
     def disconnect(self):
         if self.container:
@@ -232,7 +236,7 @@ class SQLTransactionStorage:
             self._execute(
                 """
                 CREATE TABLE IF NOT EXISTS transactions (
-                    txid VARCHAR(64) PRIMARY KEY,
+                    txid VARCHAR(66) PRIMARY KEY,
                     timestamp TIMESTAMP,
                     confirmed BOOLEAN,
                     height BIGINT,
@@ -267,7 +271,7 @@ class SQLTransactionStorage:
             self._execute(
                 """
                 CREATE TABLE IF NOT EXISTS txos (
-                    txid VARCHAR(64),
+                    txid VARCHAR(66),
                     address TEXT,
                     tx_index INTEGER,
                     entry_type TEXT,
@@ -277,6 +281,27 @@ class SQLTransactionStorage:
             )
         except Exception as e:
             raise DatabaseError(f"Error creating txos table: {e}")
+
+    def _ensure_txid_column_capacity(self):
+        try:
+            protocol = self.connection_params["protocol"]
+            if protocol == "postgresql":
+                statements = [
+                    "ALTER TABLE transactions ALTER COLUMN txid TYPE VARCHAR(66)",
+                    "ALTER TABLE txos ALTER COLUMN txid TYPE VARCHAR(66)",
+                ]
+            elif protocol == "mysql":
+                statements = [
+                    "ALTER TABLE transactions MODIFY COLUMN txid VARCHAR(66) NOT NULL",
+                    "ALTER TABLE txos MODIFY COLUMN txid VARCHAR(66) NOT NULL",
+                ]
+            else:
+                return
+
+            for statement in statements:
+                self._execute(statement)
+        except Exception as e:
+            raise DatabaseError(f"Error widening txid columns: {e}")
 
     def get_block_height(self):
         try:

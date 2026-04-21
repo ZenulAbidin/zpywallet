@@ -20,6 +20,7 @@ from zpywallet.address import (
     SQLTransactionStorage,
     Web3Client,
 )
+from zpywallet.address.cache import DatabaseError
 from zpywallet.address.fullnode import RPCClient
 from zpywallet.errors import NetworkException
 from .mock.btc import BitcoinMainUnit
@@ -27,6 +28,7 @@ from .mock.server import gen_random_port, spawn_server, exit_server
 
 import multiprocessing
 
+from zpywallet.generated import wallet_pb2
 from zpywallet.generated.wallet_pb2 import Transaction, UTXO
 
 
@@ -205,6 +207,83 @@ class TestAddress(unittest.TestCase):
         storage.commit()
         self.assertFalse(storage.have_transaction("round-trip"))
 
+    def test_0002b_sql_transaction_storage_round_trip_canonical_eth_txid(self):
+        """Test that canonical 0x-prefixed EVM txids round-trip through sqlite cache."""
+        storage = SQLTransactionStorage(self._sqlite_uri())
+        storage.connect()
+
+        transaction = Transaction()
+        transaction.txid = "0x" + ("ab" * 32)
+        transaction.timestamp = 123456789
+        transaction.confirmed = True
+        transaction.height = 42
+        transaction.fee_metric = wallet_pb2.FeeMetric.Value("WEI")
+        transaction.ethlike_transaction.txfrom = (
+            "0xd73e8e2ac0099169e7404f23c6caa94cf1884384"
+        )
+        transaction.ethlike_transaction.txto = (
+            "0xea83c649dd49a6ec44c9e2943eb673a8fbb7bab6"
+        )
+        transaction.ethlike_transaction.amount = 25
+        transaction.ethlike_transaction.gas = 21000
+
+        storage.store_transaction(transaction)
+        storage.commit()
+
+        self.assertTrue(storage.have_transaction(transaction.txid))
+        self.assertEqual(
+            storage.get_transaction_by_txid(transaction.txid).txid,
+            transaction.txid,
+        )
+        self.assertEqual(
+            [tx.txid for tx in storage.get_transactions_by_address(transaction.ethlike_transaction.txfrom)],
+            [transaction.txid],
+        )
+
+    def test_0002c_sql_transaction_storage_widens_txid_columns_for_sql_backends(self):
+        class RecordingStorage(SQLTransactionStorage):
+            def __init__(self, protocol):
+                self.connection_params = {"protocol": protocol}
+                self.statements = []
+
+            def _execute(self, sql, params=None):
+                self.statements.append((sql, params or ()))
+
+        postgres_storage = RecordingStorage("postgresql")
+        postgres_storage._ensure_txid_column_capacity()
+        self.assertEqual(
+            [statement for statement, _params in postgres_storage.statements],
+            [
+                "ALTER TABLE transactions ALTER COLUMN txid TYPE VARCHAR(66)",
+                "ALTER TABLE txos ALTER COLUMN txid TYPE VARCHAR(66)",
+            ],
+        )
+
+        mysql_storage = RecordingStorage("mysql")
+        mysql_storage._ensure_txid_column_capacity()
+        self.assertEqual(
+            [statement for statement, _params in mysql_storage.statements],
+            [
+                "ALTER TABLE transactions MODIFY COLUMN txid VARCHAR(66) NOT NULL",
+                "ALTER TABLE txos MODIFY COLUMN txid VARCHAR(66) NOT NULL",
+            ],
+        )
+
+    def test_0002d_sql_transaction_storage_connect_fails_closed_on_schema_error(self):
+        class BrokenStorage(SQLTransactionStorage):
+            def __init__(self, db_uri):
+                super().__init__(db_uri)
+
+            def create_transactions_table(self):
+                raise DatabaseError("boom")
+
+        storage = BrokenStorage(self._sqlite_uri())
+
+        with self.assertRaisesRegex(DatabaseError, "boom"):
+            storage.connect()
+
+        self.assertIsNone(storage.container)
+
     def test_0003_rpc_client_reads_blocks_into_cache(self):
         """Test that the full-node reader syncs new blocks into sqlite cache."""
 
@@ -258,8 +337,36 @@ class TestAddress(unittest.TestCase):
         storage = SQLTransactionStorage(db_uri)
         self.assertEqual(storage.get_block_height(), 2)
 
+    def test_0004_rpc_client_parses_output_amounts_without_float_drift(self):
+        client = RPCClient(["cache-address"], coin="BTC", chain="main")
+        transaction = client._clean_tx(
+            {
+                "txid": "tx-float",
+                "blocktime": 1,
+                "vout": [
+                    {
+                        "value": 0.00000003,
+                        "n": 0,
+                        "scriptPubKey": {"address": "cache-address"},
+                    }
+                ],
+                "vin": [{}],
+                "size": 100,
+            },
+            1,
+            None,
+        )
+
+        self.assertEqual(transaction.btclike_transaction.outputs[0].amount, 3)
+
+    def test_0004a_rpc_client_uses_correct_dogecoin_testnet_port(self):
+        client = RPCClient(["cache-address"], coin="DOGE", chain="test")
+
+        self.assertEqual(client.rpc_port, 44555)
+        self.assertEqual(client.rpc_url, "http://127.0.0.1:44555")
+
     def test_0004_web3_client_reads_blocks_into_cache(self):
-        """Test that the web3 reader stores full transaction objects in sqlite."""
+        """Test that the web3 reader stores only matching txs in sqlite."""
 
         class FakeEth:
             block_number = 2
@@ -283,7 +390,17 @@ class TestAddress(unittest.TestCase):
                             "input": "0x1234",
                             "gas": 21000,
                             "gasPrice": 3,
-                        }
+                        },
+                        {
+                            "hash": bytes.fromhex(f"{block_number + 10:064x}"),
+                            "blockNumber": block_number,
+                            "from": "0x1111111111111111111111111111111111111111",
+                            "to": "0x2222222222222222222222222222222222222222",
+                            "value": 77,
+                            "input": "0xabcd",
+                            "gas": 25000,
+                            "gasPrice": 5,
+                        },
                     ],
                 }
 
@@ -304,6 +421,7 @@ class TestAddress(unittest.TestCase):
             coin="ETH",
             chain="main",
             db_connection_parameters=db_uri,
+            history_start_block=1,
             url="https://example.invalid",
         )
         client.web3 = FakeWeb3()
@@ -315,9 +433,43 @@ class TestAddress(unittest.TestCase):
         self.assertEqual(history[0].ethlike_transaction.gas, 15000)
         self.assertEqual(history[0].total_fee, 60000)
         self.assertEqual(history[0].ethlike_transaction.data, bytes.fromhex("1234"))
+        self.assertEqual(
+            len([call for call in client.web3.eth.calls if call[0] == "receipt"]), 2
+        )
+        self.assertNotIn(("pending", True), client.web3.eth.calls)
 
         storage = SQLTransactionStorage(db_uri)
         self.assertEqual(storage.get_block_height(), 2)
+
+    def test_0004b_web3_client_requires_explicit_sync_bounds(self):
+        class FakeEth:
+            block_number = 2
+
+            def set_gas_price_strategy(self, _strategy):
+                return None
+
+        class FakeMiddlewareOnion:
+            def add(self, _middleware):
+                return None
+
+        class FakeWeb3:
+            def __init__(self):
+                self.eth = FakeEth()
+                self.middleware_onion = FakeMiddlewareOnion()
+
+        client = Web3Client(
+            ["0xd73e8e2ac0099169e7404f23c6caa94cf1884384"],
+            coin="ETH",
+            chain="main",
+            db_connection_parameters=self._sqlite_uri(),
+            url="https://example.invalid",
+        )
+        client.web3 = FakeWeb3()
+
+        with self.assertRaisesRegex(
+            NetworkException, "history_start_block or history_lookback_blocks"
+        ):
+            client.read_mempool()
 
     def test_0005_crypto_client_initialize_database_fails_over_cache_providers(self):
         """Test that database initialization keeps trying cache providers after a failure."""
@@ -346,6 +498,72 @@ class TestAddress(unittest.TestCase):
 
         self.assertEqual(first.calls, 1)
         self.assertEqual(second.calls, 1)
+
+    def test_0005b_crypto_client_raises_without_cached_history(self):
+        class FailingProvider:
+            def get_transaction_history(self):
+                raise NetworkException("provider unavailable")
+
+        client = CryptoClient.__new__(CryptoClient)
+        client.coin = "BTC"
+        client.cache_provider_list = []
+        client.provider_list = [FailingProvider()]
+        client.transactions = []
+
+        with self.assertRaisesRegex(NetworkException, "provider unavailable"):
+            client.get_transaction_history()
+
+    def test_0005c_crypto_client_keeps_cached_history_on_provider_failure(self):
+        class FailingProvider:
+            def get_transaction_history(self):
+                raise NetworkException("provider unavailable")
+
+        cached_transaction = Transaction()
+        cached_transaction.txid = "cached-tx"
+        cached_transaction.height = 5
+
+        client = CryptoClient.__new__(CryptoClient)
+        client.coin = "BTC"
+        client.cache_provider_list = []
+        client.provider_list = [FailingProvider()]
+        client.transactions = [cached_transaction]
+
+        history = client.get_transaction_history()
+
+        self.assertEqual([tx.txid for tx in history], ["cached-tx"])
+
+    def test_0005d_crypto_client_eth_balance_raises_on_provider_failure(self):
+        class FailingProvider:
+            def get_balance(self):
+                raise NetworkException("balance unavailable")
+
+        client = CryptoClient.__new__(CryptoClient)
+        client.coin = "ETH"
+        client.cache_provider_list = [FailingProvider()]
+        client.provider_list = []
+        client.addresses = []
+        client.transactions = []
+
+        with self.assertRaisesRegex(NetworkException, "balance unavailable"):
+            client.get_balance()
+
+    def test_0005e_crypto_client_btc_balance_uses_cached_transactions(self):
+        transaction = Transaction()
+        transaction.txid = "cached-balance"
+        transaction.confirmed = True
+        transaction.height = 3
+        transaction.btclike_transaction.outputs.add(
+            index=0, amount=2500, address="cache-address", spent=False
+        )
+
+        client = CryptoClient.__new__(CryptoClient)
+        client.coin = "BTC"
+        client.cache_provider_list = []
+        client.provider_list = []
+        client.addresses = ["cache-address"]
+        client.transactions = [transaction]
+
+        self.assertEqual(client.get_balance(), (2500, 2500))
 
     def test_001_btc_blockstream_address(self):
         """Test fetching Bitcoin addresses with Blockstream using mocked data."""

@@ -1,5 +1,6 @@
 import requests
 from ...errors import NetworkException
+from .._provider_success import bitcoin_like_broadcast_success_txid
 
 
 async def broadcast_transaction_btc_blockchair(raw_transaction_hex):
@@ -26,3 +27,5 @@ async def broadcast_transaction_btc_blockchair(raw_transaction_hex):
         raise NetworkException(
             f"Failed to broadcast Bitcoin transaction using Blockchair API: {result.get('message')}"
         )
+
+    return bitcoin_like_broadcast_success_txid(raw_transaction_hex)

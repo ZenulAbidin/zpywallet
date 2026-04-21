@@ -5,6 +5,7 @@ This module contains the methods for creating a crypto wallet.
 
 import json
 import math
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from os import urandom
 from Cryptodome import Random
 from typing import List
@@ -35,6 +36,7 @@ from .network import (
     LitecoinSegwitTestNet,
     LitecoinTestNet,
     EthereumMainNet,
+    EthereumSepoliaTestNet,
     DogecoinMainNet,
     DogecoinBTCMainNet,
     DogecoinTestNet,
@@ -50,6 +52,7 @@ from .network import (
 from .address import CryptoClient
 
 from .nodes.eth import eth_nodes
+from .nodes.ethsepolia import ethsepolia_nodes
 
 from .utils.aes import encrypt_str, decrypt_str
 
@@ -127,7 +130,7 @@ class Wallet:
         seed_phrase,
         password,
         receive_gap_limit=1000,
-        change_gap_limit=1000,
+        change_gap_limit=None,
         derivation_path=None,
         _with_wallet=True,
         max_cycles=100,
@@ -141,7 +144,8 @@ class Wallet:
             seed_phrase: The seed phrase for the wallet.
             password: The password to encrypt the wallet.
             receive_gap_limit (int, optional): The maximum gap limit for receive addresses. Defaults to 1000.
-            change_gap_limit (int, optional): The maximum gap limit for change addresses. Defaults to 1000.
+            change_gap_limit (int, optional): The maximum gap limit for change addresses.
+                Defaults to the receive gap limit.
             derivation_path (str, optional): The derivation path for the wallet. Defaults to None.
             max_cycles (int, optional): The maximum number of cycles. Defaults to 100.
             fullnode_endpoints (list, optional): List of full node endpoints. Defaults to None.
@@ -158,6 +162,18 @@ class Wallet:
 
         self._network = network
         self._change_addresses = []
+        self._db_connection_parameters = kwargs.get("db_connection_parameters")
+        self._history_start_block = kwargs.get("history_start_block")
+        self._history_lookback_blocks = kwargs.get("history_lookback_blocks")
+        self._allow_unbounded_history_sync = kwargs.get(
+            "allow_unbounded_history_sync", False
+        )
+        self._include_pending_history = kwargs.get(
+            "include_pending_history", False
+        )
+        self._evm_history_bootstrapped = False
+        if change_gap_limit is None:
+            change_gap_limit = receive_gap_limit
         derivation_path = derivation_path or (
             network.BIP32_SEGWIT_PATH or network.BIP32_PATH
         )
@@ -200,6 +216,7 @@ class Wallet:
             LitecoinSegwitTestNet: wallet_pb2.LITECOIN_SEGWIT_TESTNET,
             LitecoinTestNet: wallet_pb2.LITECOIN_TESTNET,
             EthereumMainNet: wallet_pb2.ETHEREUM_MAINNET,
+            EthereumSepoliaTestNet: wallet_pb2.ETHEREUM_SEPOLIA,
             DogecoinMainNet: wallet_pb2.DOGECOIN_MAINNET,
             DogecoinBTCMainNet: wallet_pb2.DOGECOIN_BTC_MAINNET,
             DogecoinTestNet: wallet_pb2.DOGECOIN_TESTNET,
@@ -227,7 +244,7 @@ class Wallet:
         self._setup_client(max_cycles=max_cycles)
 
     @classmethod
-    def deserialize(cls, data: bytes, password, max_cycles=100):
+    def deserialize(cls, data: bytes, password, max_cycles=100, **kwargs):
         """
         Deserialize a Wallet object from its byte representation.
 
@@ -259,6 +276,7 @@ class Wallet:
             wallet_pb2.LITECOIN_SEGWIT_TESTNET: LitecoinSegwitTestNet,
             wallet_pb2.LITECOIN_TESTNET: LitecoinTestNet,
             wallet_pb2.ETHEREUM_MAINNET: EthereumMainNet,
+            wallet_pb2.ETHEREUM_SEPOLIA: EthereumSepoliaTestNet,
             wallet_pb2.DOGECOIN_MAINNET: DogecoinMainNet,
             wallet_pb2.DOGECOIN_BTC_MAINNET: DogecoinBTCMainNet,
             wallet_pb2.DOGECOIN_TESTNET: DogecoinTestNet,
@@ -275,7 +293,7 @@ class Wallet:
         if network is None:
             raise ValueError("Unknown network")
 
-        self = cls(network, seed_phrase, password, _with_wallet=False)
+        self = cls(network, seed_phrase, password, _with_wallet=False, **kwargs)
         self.container = wallet
         self._change_addresses = []
         hdwallet = HDWallet.from_mnemonic(mnemonic=seed_phrase, network=network)
@@ -364,19 +382,28 @@ class Wallet:
         if self._network.SUPPORTS_EVM:
             use_database = True
             if not fullnode_endpoints and self._network.COIN == "ETH":
-                fullnode_endpoints.extend(eth_nodes)
+                fullnode_endpoints.extend(self._default_eth_nodes())
 
         kwargs = {
             "fullnode_endpoints": fullnode_endpoints,
             "esplora_endpoints": esplora_endpoints,
             "blockcypher_tokens": blockcypher_tokens,
             "use_database": use_database,
+            "db_connection_parameters": self._db_connection_parameters,
+            "history_start_block": self._history_start_block,
+            "history_lookback_blocks": self._history_lookback_blocks,
+            "allow_unbounded_history_sync": self._allow_unbounded_history_sync,
+            "include_pending_history": self._include_pending_history,
         }
 
         self.client = CryptoClient(
             addresses,
             coin=self._network.COIN,
-            chain="test" if self._network.TESTNET else "main",
+            chain=getattr(
+                self._network,
+                "CHAIN",
+                "test" if self._network.TESTNET else "main",
+            ),
             transactions=self.container.transactions,
             max_cycles=max_cycles,
             **kwargs,
@@ -390,6 +417,15 @@ class Wallet:
             List[Transaction]: The list of transactions in the wallet's history.
         """
         transactions = self.client.get_transaction_history()
+        if (
+            self._network.SUPPORTS_EVM
+            and not transactions
+            and not self._evm_history_bootstrapped
+            and getattr(self.client, "cache_provider_list", None)
+        ):
+            self.client.initialize_database()
+            self._evm_history_bootstrapped = True
+            transactions = self.client.get_transaction_history()
         # Create a set to keep track of unique txid values
         seen_txids = set()
 
@@ -399,6 +435,8 @@ class Wallet:
         # Iterate through transactions
         for transaction in transactions:
             txid = transaction.txid
+            if self._network.SUPPORTS_EVM:
+                txid = Transaction.normalize_evm_txid(txid)
 
             # Check if txid is not seen before
             if txid not in seen_txids:
@@ -604,8 +642,56 @@ class Wallet:
             return fullnode_endpoints
         else:
             if self._network.COIN == "ETH":
-                fullnode_endpoints.extend(eth_nodes)
+                fullnode_endpoints.extend(self._default_eth_nodes())
             return fullnode_endpoints
+
+    def _default_eth_nodes(self):
+        if getattr(self._network, "CHAIN", None) == "sepolia":
+            return list(ethsepolia_nodes)
+        return list(eth_nodes)
+
+    @staticmethod
+    def _fee_cost(size, fee_rate):
+        try:
+            decimal_fee_rate = (
+                fee_rate if isinstance(fee_rate, Decimal) else Decimal(str(fee_rate))
+            )
+        except (InvalidOperation, TypeError, ValueError) as e:
+            raise TypeError("fee_rate must be numeric") from e
+
+        if decimal_fee_rate < 0:
+            raise ValueError("fee_rate must be non-negative")
+
+        return int(
+            (Decimal(size) * decimal_fee_rate).to_integral_value(
+                rounding=ROUND_CEILING
+            )
+        )
+
+    def _minimum_change_amount(self, fee_rate):
+        if fee_rate <= 0:
+            return 0
+
+        future_spend_size = 68 if self._network.SUPPORTS_SEGWIT else 148
+        future_spend_cost = self._fee_cost(future_spend_size, fee_rate)
+        return max(546, future_spend_cost)
+
+    def _minimum_output_amount(self):
+        if self._network.SUPPORTS_EVM:
+            return 0
+        return 546
+
+    def _validate_destination_amounts(self, destinations):
+        minimum_output_amount = self._minimum_output_amount()
+        if minimum_output_amount <= 0:
+            return
+
+        for destination in destinations:
+            amount = destination.amount(in_standard_units=False)
+            if 0 < amount < minimum_output_amount:
+                raise ValueError(
+                    "Destination amount is below the dust threshold"
+                )
 
     def _estimate_transaction_size(self, inputs, destinations):
         temp_transaction = create_transaction(
@@ -641,6 +727,10 @@ class Wallet:
                     "Not enough balance for this transaction "
                     "(are you trying to send dust amounts?)"
                 )
+            if 0 < adjusted_amount < self._minimum_output_amount():
+                raise ValueError(
+                    "Proportional fee adjustment would create a dust output"
+                )
             adjusted_destinations.append(
                 Destination(
                     destination.address(),
@@ -668,9 +758,13 @@ class Wallet:
         size_with_change = self._estimate_transaction_size(
             inputs, working_destinations + [placeholder_change]
         )
-        required_with_change = total_outputs + size_with_change * fee_rate
+        required_with_change = total_outputs + self._fee_cost(
+            size_with_change, fee_rate
+        )
         if total_inputs >= required_with_change:
             change = total_inputs - required_with_change
+            if 0 < change < self._minimum_change_amount(fee_rate):
+                return working_destinations, None
             return (
                 working_destinations,
                 None
@@ -686,7 +780,9 @@ class Wallet:
         size_without_change = self._estimate_transaction_size(
             inputs, working_destinations
         )
-        required_without_change = total_outputs + size_without_change * fee_rate
+        required_without_change = total_outputs + self._fee_cost(
+            size_without_change, fee_rate
+        )
         if total_inputs >= required_without_change:
             return working_destinations, None
 
@@ -696,13 +792,56 @@ class Wallet:
         total_outputs = sum(
             [o.amount(in_standard_units=False) for o in working_destinations]
         )
-        if total_inputs < total_outputs + size_without_change * fee_rate:
+        if total_inputs < total_outputs + self._fee_cost(size_without_change, fee_rate):
             raise ValueError(
                 "Not enough balance for this transaction "
                 "(are you trying to send dust amounts?)"
             )
 
         return working_destinations, None
+
+    def _select_inputs(self, inputs, destinations, fee_rate):
+        if not inputs:
+            raise ValueError(
+                "Not enough balance for this transaction "
+                "(are you trying to send dust amounts?)"
+            )
+
+        ascending_inputs = sorted(
+            inputs,
+            key=lambda utxo: (
+                utxo.amount(in_standard_units=False),
+                -(utxo.height() or 0),
+            ),
+        )
+
+        for candidate in ascending_inputs:
+            try:
+                self._calculate_change([candidate], destinations, fee_rate)
+                return [candidate]
+            except ValueError:
+                continue
+
+        selected_inputs = []
+        for candidate in sorted(
+            ascending_inputs,
+            key=lambda utxo: (
+                utxo.amount(in_standard_units=False),
+                utxo.height() or 0,
+            ),
+            reverse=True,
+        ):
+            selected_inputs.append(candidate)
+            try:
+                self._calculate_change(selected_inputs, destinations, fee_rate)
+                return selected_inputs
+            except ValueError:
+                continue
+
+        raise ValueError(
+            "Not enough balance for this transaction "
+            "(are you trying to send dust amounts?)"
+        )
 
     # Fee rate is in the unit used by the network, ie. vbytes, bytes or wei
     def create_transaction(
@@ -761,6 +900,8 @@ class Wallet:
         if fee_rate is None:
             raise ValueError("fee_rate is required for non-EVM transactions")
 
+        self._validate_destination_amounts(destinations)
+
         inputs = self.get_utxos(only_unspent=True)
 
         if not spend_unconfirmed_inputs:
@@ -773,6 +914,7 @@ class Wallet:
         private_keys = self._spend_private_keys(password)
 
         inputs = self._to_human_friendly_utxo(inputs, private_keys)
+        inputs = self._select_inputs(inputs, destinations, fee_rate)
 
         adjusted_destinations, change = self._calculate_change(
             inputs, destinations, fee_rate

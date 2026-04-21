@@ -12,4 +12,7 @@ async def gather_broadcast_tasks(awaitables):
     ]
     if not tasks:
         return []
-    return await asyncio.gather(*tasks, return_exceptions=True)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    if all(isinstance(result, Exception) for result in results):
+        raise results[0]
+    return results

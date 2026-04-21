@@ -110,9 +110,8 @@ def assemble_segwit_payload(
     # hash_prevouts (32-byte hash)
     hash_prevouts = b""
     for j in inputs:
-        hash_prevouts += binascii.unhexlify(j.txid().encode()) + int_to_hex(
-            j.index(), 4
-        )
+        hash_prevouts += binascii.unhexlify(j.txid().encode())[::-1]
+        hash_prevouts += int_to_hex(j.index(), 4)
     segwit_payload += hashlib.sha256(hashlib.sha256(hash_prevouts).digest()).digest()
 
     # hash_sequence (32-byte hash)
@@ -125,7 +124,8 @@ def assemble_segwit_payload(
     segwit_payload += hashlib.sha256(hashlib.sha256(hash_sequence).digest()).digest()
 
     # outpoint (32-byte hash + 4-byte little endian)
-    segwit_payload += binascii.unhexlify(i.txid().encode()) + int_to_hex(i.index(), 4)
+    segwit_payload += binascii.unhexlify(i.txid().encode())[::-1]
+    segwit_payload += int_to_hex(i.index(), 4)
 
     # scriptCode of the input (serialized as scripts inside CTxOuts)
     # note: for p2wpkh this is actually the P2PKH script!!!
@@ -293,6 +293,11 @@ def create_transaction(
             full_nodes,
             kwargs.get("gas"),
             network.CHAIN_ID,
+            nonce=kwargs.get("nonce"),
+            data=kwargs.get("data"),
+            gas_price=kwargs.get("gas_price"),
+            max_fee_per_gas=kwargs.get("max_fee_per_gas"),
+            max_priority_fee_per_gas=kwargs.get("max_priority_fee_per_gas"),
         )
 
     legacy = []
@@ -427,7 +432,18 @@ def _normalize_signed_web3_transaction(signed_transaction):
 
 
 def create_web3_transaction(
-    a_from, a_to, amount, private_key, fullnodes, gas, chain_id
+    a_from,
+    a_to,
+    amount,
+    private_key,
+    fullnodes,
+    gas,
+    chain_id,
+    nonce=None,
+    data=None,
+    gas_price=None,
+    max_fee_per_gas=None,
+    max_priority_fee_per_gas=None,
 ):
     def add_web3_cache_middleware(middleware_onion):
         for middleware_name in (
@@ -447,11 +463,95 @@ def create_web3_transaction(
             return bytes.fromhex(key)
         return bytes(key)
 
+    def maybe_call(value):
+        return value() if callable(value) else value
+
+    def normalize_data(payload):
+        if payload is None:
+            return None
+        if isinstance(payload, bytes):
+            return payload
+        if isinstance(payload, bytearray):
+            return bytes(payload)
+        if isinstance(payload, str):
+            normalized = payload[2:] if payload.startswith("0x") else payload
+            return bytes.fromhex(normalized)
+        raise TypeError("data must be bytes or a hex string")
+
+    def get_latest_block(w3):
+        get_block = getattr(w3.eth, "get_block", None)
+        if get_block is None:
+            get_block = w3.eth.getBlock
+        return get_block("latest")
+
+    has_legacy_fee = gas_price is not None
+    has_eip1559_fee = (
+        max_fee_per_gas is not None or max_priority_fee_per_gas is not None
+    )
+    if has_legacy_fee and has_eip1559_fee:
+        raise ValueError(
+            "Cannot mix gas_price with EIP-1559 fee fields in one transaction"
+        )
+    if has_eip1559_fee and (
+        max_fee_per_gas is None or max_priority_fee_per_gas is None
+    ):
+        raise ValueError(
+            "Both max_fee_per_gas and max_priority_fee_per_gas are required together"
+        )
+
+    def build_fee_fields(w3):
+        if has_legacy_fee:
+            return {"gasPrice": int(gas_price)}
+
+        if has_eip1559_fee:
+            return {
+                "maxFeePerGas": int(max_fee_per_gas),
+                "maxPriorityFeePerGas": int(max_priority_fee_per_gas),
+            }
+
+        try:
+            max_priority_fee = maybe_call(
+                getattr(w3.eth, "max_priority_fee", None)
+            )
+            if max_priority_fee is None:
+                max_priority_fee = maybe_call(
+                    getattr(w3.eth, "maxPriorityFee", None)
+                )
+
+            latest_block = get_latest_block(w3)
+            base_fee = latest_block.get("baseFeePerGas")
+            if base_fee is not None and max_priority_fee is not None:
+                max_priority_fee = int(max_priority_fee)
+                return {
+                    "maxFeePerGas": int(base_fee) * 2 + max_priority_fee,
+                    "maxPriorityFeePerGas": max_priority_fee,
+                }
+        except Exception:
+            pass
+
+        resolved_gas_price = maybe_call(getattr(w3.eth, "gas_price", None))
+        if resolved_gas_price is None:
+            resolved_gas_price = maybe_call(getattr(w3.eth, "gasPrice", None))
+        if resolved_gas_price is None and hasattr(w3.eth, "generate_gas_price"):
+            resolved_gas_price = maybe_call(w3.eth.generate_gas_price)
+        if resolved_gas_price is None:
+            raise RuntimeError("Unable to determine gas price")
+        return {"gasPrice": int(resolved_gas_price)}
+
     sender_address = a_from
     receiver_address = a_to
+    normalized_private_key = normalize_private_key(private_key)
+    normalized_data = normalize_data(data)
+    expected_sender = web3.Account.from_key(normalized_private_key).address
+    if to_checksum_address(sender_address) != to_checksum_address(expected_sender):
+        raise ValueError("Sender address does not match private key")
     # All amounts are in WEI not Ether
 
     # Check the nonce for the sender address
+    if not fullnodes:
+        raise RuntimeError("Cannot sign web3 transaction without any full nodes")
+
+    last_error = None
     for node in fullnodes:
         try:
             w3 = web3.Web3(web3.HTTPProvider(node["url"]))
@@ -459,35 +559,45 @@ def create_web3_transaction(
             w3.eth.set_gas_price_strategy(fast_gas_price_strategy)
             add_web3_cache_middleware(w3.middleware_onion)
 
-            nonce_method = getattr(w3.eth, "get_transaction_count", None)
-            if nonce_method is None:
-                nonce_method = w3.eth.getTransactionCount
-            nonce = nonce_method(to_checksum_address(sender_address))
+            resolved_nonce = nonce
+            if resolved_nonce is None:
+                nonce_method = getattr(w3.eth, "get_transaction_count", None)
+                if nonce_method is None:
+                    nonce_method = w3.eth.getTransactionCount
+                resolved_nonce = nonce_method(to_checksum_address(sender_address))
 
             # Build the transaction dictionary
             transaction = {
-                "nonce": nonce,
-                "to": to_checksum_address(receiver_address),
+                "nonce": int(resolved_nonce),
                 "value": int(amount),
-                # 'gas': gas,#21000,  # Gas limit
-                # Since the London hard work (EIP-1559), nobody uses gasPrice anymore. They use max<Priority>FeePerGas
-                # Which is automatically specified (somehow) in Web3.
-                # 'gasPrice': w3.toWei(gasPrice, 'gwei'),  # Gas price in Gwei, adjust as needed
-                "chain_id": chain_id,  # 1 for Mainnet, change to 3 for Ropsten, 4 for Rinkeby, etc.
+                "chainId": chain_id,
             }
+            if receiver_address:
+                transaction["to"] = to_checksum_address(receiver_address)
+            if normalized_data is not None:
+                transaction["data"] = normalized_data
 
             # OK now calculate the gas
             if not gas:
-                gas = w3.eth.estimate_gas(transaction)
-            transaction["gas"] = gas
+                estimate_transaction = dict(
+                    transaction, **{"from": to_checksum_address(sender_address)}
+                )
+                gas = w3.eth.estimate_gas(estimate_transaction)
+            transaction["gas"] = int(gas)
+            transaction.update(build_fee_fields(w3))
 
             # Sign the transaction
             sign_method = getattr(w3.eth.account, "sign_transaction", None)
             if sign_method is None:
                 sign_method = w3.eth.account.signTransaction
             return _normalize_signed_web3_transaction(
-                sign_method(transaction, normalize_private_key(private_key))
+                sign_method(transaction, normalized_private_key)
             )
-        except Exception:
-            pass
-    raise RuntimeError("Cannot sign web3 transaction (try specifying different nodes)")
+        except Exception as e:
+            last_error = e
+
+    if last_error is None:
+        raise RuntimeError("Cannot sign web3 transaction (try specifying different nodes)")
+    raise RuntimeError(
+        "Cannot sign web3 transaction (try specifying different nodes)"
+    ) from last_error

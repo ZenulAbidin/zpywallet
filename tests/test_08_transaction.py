@@ -3,8 +3,11 @@
 
 """Tests for creating signed transactions."""
 
+import hashlib
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
+from eth_account import Account
 from zpywallet.address import CryptoClient
 from zpywallet.destination import Destination
 from zpywallet.network import (
@@ -223,19 +226,10 @@ class TestAddress(unittest.TestCase):
             def add(self, _middleware):
                 return None
 
-        class FakeAccount:
-            def __init__(self):
-                self.last_transaction = None
-                self.last_private_key = None
-
-            def sign_transaction(self, transaction, private_key):
-                self.last_transaction = transaction
-                self.last_private_key = private_key
-                return {"raw_transaction": b"signed"}
-
         class FakeEth:
             def __init__(self):
-                self.account = FakeAccount()
+                self.account = Account
+                self.gas_price = 1
 
             def set_gas_price_strategy(self, _strategy):
                 return None
@@ -253,8 +247,9 @@ class TestAddress(unittest.TestCase):
                 self.middleware_onion = FakeMiddlewareOnion()
 
         with patch("zpywallet.transactions.encode.web3.Web3", FakeWeb3):
+            sender_address = Account.from_key("0x" + "11" * 32).address
             signed = create_web3_transaction(
-                "0xd73e8e2ac0099169e7404f23c6caa94cf1884384",
+                sender_address,
                 "0xea83c649dd49a6ec44c9e2943eb673a8fbb7bab6",
                 20,
                 "0x" + "11" * 32,
@@ -263,7 +258,113 @@ class TestAddress(unittest.TestCase):
                 EthereumMainNet.CHAIN_ID,
             )
 
-        self.assertEqual(signed, b"signed".hex())
+        recovered = Account.recover_transaction(bytes.fromhex(signed))
+        self.assertEqual(recovered.lower(), sender_address.lower())
+
+    def test_005a_eth_sign_supports_data_nonce_and_fee_overrides(self):
+        class FakeMiddlewareOnion:
+            def add(self, _middleware):
+                return None
+
+        class FakeAccount:
+            def __init__(self):
+                self.calls = []
+
+            def sign_transaction(self, transaction, private_key):
+                self.calls.append((transaction, private_key))
+                return SimpleNamespace(raw_transaction=b"\x12\x34")
+
+        class FakeEth:
+            def __init__(self):
+                self.account = FakeAccount()
+
+            def set_gas_price_strategy(self, _strategy):
+                return None
+
+        class FakeWeb3:
+            def __init__(self, _provider):
+                self.eth = FakeEth()
+                self.middleware_onion = FakeMiddlewareOnion()
+
+        fake_web3 = FakeWeb3(None)
+        with patch("zpywallet.transactions.encode.web3.Web3", return_value=fake_web3):
+            sender_address = Account.from_key("0x" + "11" * 32).address
+            signed = create_web3_transaction(
+                sender_address,
+                "0xea83c649dd49a6ec44c9e2943eb673a8fbb7bab6",
+                20,
+                "0x" + "11" * 32,
+                [{"url": "https://example.invalid"}],
+                25000,
+                EthereumMainNet.CHAIN_ID,
+                nonce=9,
+                data="0x1234",
+                max_fee_per_gas=30,
+                max_priority_fee_per_gas=2,
+            )
+
+        self.assertEqual(signed, "1234")
+        transaction, private_key = fake_web3.eth.account.calls[0]
+        self.assertEqual(transaction["nonce"], 9)
+        self.assertEqual(transaction["gas"], 25000)
+        self.assertEqual(transaction["value"], 20)
+        self.assertEqual(transaction["data"], bytes.fromhex("1234"))
+        self.assertEqual(transaction["maxFeePerGas"], 30)
+        self.assertEqual(transaction["maxPriorityFeePerGas"], 2)
+        self.assertNotIn("gasPrice", transaction)
+        self.assertEqual(private_key, bytes.fromhex("11" * 32))
+
+    def test_005aa_eth_sign_rejects_mixed_fee_models(self):
+        sender_address = Account.from_key("0x" + "11" * 32).address
+
+        with self.assertRaisesRegex(ValueError, "Cannot mix gas_price"):
+            create_web3_transaction(
+                sender_address,
+                "0xea83c649dd49a6ec44c9e2943eb673a8fbb7bab6",
+                20,
+                "0x" + "11" * 32,
+                [{"url": "https://example.invalid"}],
+                21000,
+                EthereumMainNet.CHAIN_ID,
+                gas_price=1,
+                max_fee_per_gas=2,
+                max_priority_fee_per_gas=1,
+            )
+
+    def test_005ab_eth_create_transaction_supports_contract_creation(self):
+        sender_key = PrivateKey.from_int(1, network=EthereumMainNet)
+        pseudo_input = UTXO(
+            None,
+            None,
+            _network=EthereumMainNet,
+            _internal_param_do_not_use={
+                "address": sender_key.public_key.address(),
+                "private_key": sender_key.to_hex(),
+                "amount": 0,
+                "height": 0,
+            },
+        )
+        destinations = [Destination("", 0, EthereumMainNet, in_standard_units=False)]
+
+        with patch(
+            "zpywallet.transactions.encode.create_web3_transaction",
+            return_value="beef",
+        ) as signer:
+            signed = create_transaction(
+                [pseudo_input],
+                destinations,
+                network=EthereumMainNet,
+                full_nodes=[{"url": "https://example.invalid"}],
+                data="0x6000",
+                nonce=3,
+                gas=120000,
+            )
+
+        self.assertEqual(signed, "beef")
+        _, kwargs = signer.call_args
+        self.assertEqual(kwargs["data"], "0x6000")
+        self.assertEqual(kwargs["nonce"], 3)
+        self.assertEqual(kwargs["gas_price"], None)
 
     def test_005b_evm_transactions_reject_multiple_destinations(self):
         sender_key = PrivateKey.from_int(1, network=EthereumMainNet)
@@ -437,10 +538,38 @@ class TestAddress(unittest.TestCase):
         signed_transaction = create_signatures_segwit(
             bytes_1, bytes_2_inputs, bytes_3, bytes_4
         )
-        correct_signed_transaction = "01000000000102fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f00000000494830450221008b9d1dc26ba6a9cb62127b02742fa9d754cd3bebf337f7a55d114c8e5cdd30be022040529b194ba3f9281a99f2b1c0a19c0489bc22ede944ccf4ecbab4cc618ef3ed01eeffffffef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a0100000000ffffffff02202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac000247304402203609e17b84f6a7d30c80bfa610b5b4542f32a8a0d5447a12fb1366d7f01cc44a0220573a954c4518331561406f90300e8f3358f51928d43c212a8caed02de67eebee0121025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee635711000000"
+        correct_signed_transaction = "01000000000102fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f00000000494830450221008b9d1dc26ba6a9cb62127b02742fa9d754cd3bebf337f7a55d114c8e5cdd30be022040529b194ba3f9281a99f2b1c0a19c0489bc22ede944ccf4ecbab4cc618ef3ed01eeffffffef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a0100000000ffffffff02202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac0002483045022100befe22b0c41e05236670a718d129d8a007caaeff9be529451a827a10480e25ee022045692706920cdac497f49ee404d2e0abad71029c91e287bf1844559a544e55e30121025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee635711000000"
         print(signed_transaction)
         print(correct_signed_transaction)
         self.assertEqual(signed_transaction, correct_signed_transaction)
+
+    def test_007a_segwit_payload_uses_little_endian_prevout_txids(self):
+        segwit_key = PrivateKey.from_int(2, network=BitcoinSegwitMainNet)
+        txid = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+        utxo = self._make_utxo(
+            segwit_key,
+            segwit_key.public_key.bech32_address(),
+            BitcoinSegwitMainNet,
+            txid,
+            50000,
+            index=2,
+        )
+
+        payload = assemble_segwit_payload(
+            utxo,
+            [utxo],
+            bytes.fromhex("ffffffff"),
+            bytes.fromhex("6a"),
+        )
+
+        prevout = bytes.fromhex(txid)[::-1] + (2).to_bytes(4, byteorder="little")
+        expected_hash_prevouts = hashlib.sha256(
+            hashlib.sha256(prevout).digest()
+        ).digest()
+
+        self.assertEqual(payload[4:36], expected_hash_prevouts)
+        self.assertEqual(payload[68:100], bytes.fromhex(txid)[::-1])
+        self.assertEqual(payload[100:104], (2).to_bytes(4, byteorder="little"))
 
     def test_008_transaction_wrapper_preserves_witness_metadata(self):
         transaction = wallet_pb2.Transaction()
@@ -493,3 +622,12 @@ class TestAddress(unittest.TestCase):
 
         self.assertEqual(wrapped.evm_gas(), 21000)
         self.assertEqual(wrapped.total_fee(in_standard_units=False), (84000, "wei"))
+
+    def test_011_evm_transaction_wrapper_normalizes_canonical_txid(self):
+        transaction = wallet_pb2.Transaction()
+        transaction.txid = "AB" * 32
+        transaction.fee_metric = wallet_pb2.FeeMetric.Value("WEI")
+
+        wrapped = WalletTransaction(transaction, EthereumMainNet)
+
+        self.assertEqual(wrapped.txid(), "0x" + ("ab" * 32))

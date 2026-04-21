@@ -543,6 +543,7 @@ class EthereumMainNet(CryptoNetwork):
     NAME = "Ethereum"
     INTERNAL_NAME = wallet_pb2.Network.ETHEREUM_MAINNET
     COIN = "ETH"
+    CHAIN = "main"
     TESTNET = False
     ADDRESS_MODE = ["HEX"]
 
@@ -568,6 +569,8 @@ class EthereumMainNet(CryptoNetwork):
 class EthereumSepoliaTestNet(EthereumMainNet):
     """Ethereum Sepolia TestNet version bytes."""
 
-    # TESTNET flag is exclusively used for Bitcoin-like networks.
-    # Instead we just hcange the CHAIN_ID
+    NAME = "Ethereum Sepolia"
+    INTERNAL_NAME = wallet_pb2.Network.ETHEREUM_SEPOLIA
+    CHAIN = "sepolia"
+    TESTNET = True
     CHAIN_ID = 11155111

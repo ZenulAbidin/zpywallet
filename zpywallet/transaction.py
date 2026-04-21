@@ -1,3 +1,5 @@
+import string
+
 from .generated import wallet_pb2
 
 
@@ -5,6 +7,18 @@ class Transaction:
     """
     Represents a transaction with associated metadata.
     """
+
+    @staticmethod
+    def normalize_evm_txid(txid):
+        if not isinstance(txid, str):
+            return txid
+
+        normalized = txid[2:] if txid.startswith("0x") else txid
+        if len(normalized) != 64:
+            return txid
+        if not all(character in string.hexdigits for character in normalized):
+            return txid
+        return f"0x{normalized.lower()}"
 
     def __init__(self, transaction: wallet_pb2.Transaction, network):
         """
@@ -15,7 +29,11 @@ class Transaction:
             network: The network associated with the transaction.
         """
         self._network = network
-        self._txid = transaction.txid
+        self._txid = (
+            self.normalize_evm_txid(transaction.txid)
+            if network.SUPPORTS_EVM
+            else transaction.txid
+        )
         self._timestamp = transaction.timestamp
         self._confirmed = transaction.confirmed
         self._height = transaction.height

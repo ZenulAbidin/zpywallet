@@ -1,5 +1,8 @@
+import asyncio
+
 import requests
 from ...errors import NetworkException
+from ._helpers import extract_provider_error, extract_provider_txid, tx_hash_eth
 
 
 async def broadcast_transaction_eth_etherscan(raw_transaction_hex, **kwargs):
@@ -20,16 +23,33 @@ async def broadcast_transaction_eth_etherscan(raw_transaction_hex, **kwargs):
         "apikey": api_key,
     }
 
-    try:
-        response = requests.get(api_url, params=payload, timeout=30)
-    except Exception as e:
-        raise NetworkException(
-            "Connection error while broadcasting transaction: {}".format(str(e))
-        )
+    def _broadcast():
+        try:
+            response = requests.get(api_url, params=payload, timeout=30)
+        except Exception as e:
+            raise NetworkException(
+                "Connection error while broadcasting transaction: {}".format(str(e))
+            )
 
-    result = response.json()
+        try:
+            result = response.json()
+        except ValueError:
+            result = None
 
-    if response.status_code >= 300 and result.get("status") == "1":
-        raise NetworkException(
-            f"Failed to broadcast Ethereum transaction using Etherscan: {result.get('message')}"
-        )
+        if response.status_code >= 300:
+            message = extract_provider_error(result) or response.text
+            raise NetworkException(
+                "Failed to broadcast Ethereum transaction using Etherscan: "
+                f"{message}"
+            )
+
+        error = extract_provider_error(result)
+        if error is not None:
+            raise NetworkException(
+                "Failed to broadcast Ethereum transaction using Etherscan: "
+                f"{error}"
+            )
+
+        return extract_provider_txid(result) or tx_hash_eth(raw_transaction_hex)
+
+    return await asyncio.to_thread(_broadcast)

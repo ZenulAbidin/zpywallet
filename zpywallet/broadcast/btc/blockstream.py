@@ -1,6 +1,7 @@
 import requests
 
 from ...errors import NetworkException
+from .._provider_success import bitcoin_like_broadcast_success_txid
 
 
 async def broadcast_transaction_btc_blockstream(raw_transaction_hex):
@@ -11,10 +12,12 @@ async def broadcast_transaction_btc_blockstream(raw_transaction_hex):
     """
 
     api_url = "https://blockstream.info/api/tx"
-    payload = {"tx": raw_transaction_hex}
+    headers = {"Content-Type": "text/plain"}
 
     try:
-        response = requests.post(api_url, data=payload, timeout=30)
+        response = requests.post(
+            api_url, data=raw_transaction_hex, headers=headers, timeout=30
+        )
     except Exception as e:
         raise NetworkException(
             "Connection error while broadcasting transaction: {}".format(str(e))
@@ -26,3 +29,5 @@ async def broadcast_transaction_btc_blockstream(raw_transaction_hex):
                 response.text
             )
         )
+
+    return bitcoin_like_broadcast_success_txid(raw_transaction_hex)
