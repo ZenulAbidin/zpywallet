@@ -1,4 +1,4 @@
-# $Id: fi.py 9030 2022-03-05 23:28:32Z milde $
+# $Id: fi.py 9452 2023-09-27 00:11:54Z milde $
 # Author: Asko Soukka <asko.soukka@iki.fi>
 # Copyright: This module has been placed in the public domain.
 
@@ -23,11 +23,11 @@ directives = {
       'vaara': 'danger',
       'virhe': 'error',
       'vihje': 'hint',
-      't\u00e4rke\u00e4\u00e4': 'important',
+      'tärkeää': 'important',
       'huomautus': 'note',
       'neuvo': 'tip',
       'varoitus': 'warning',
-      'kehotus': 'admonition',
+      'kehotus': 'admonition',  # sic! advice/advisory/remark, not reprimand
       'sivupalkki': 'sidebar',
       'aihe': 'topic',
       'rivi': 'line-block',
@@ -47,16 +47,16 @@ directives = {
       # 'kuvakartta': 'imagemap',
       'kuva': 'image',
       'kaavio': 'figure',
-      'sis\u00e4llyt\u00e4': 'include',
+      'sisällytä': 'include',
       'raaka': 'raw',
       'korvaa': 'replace',
       'unicode': 'unicode',
-      'p\u00e4iv\u00e4ys': 'date',
+      'päiväys': 'date',
       'luokka': 'class',
       'rooli': 'role',
       'default-role (translation required)': 'default-role',
       'title (translation required)': 'title',
-      'sis\u00e4llys': 'contents',
+      'sisällys': 'contents',
       'kappale': 'sectnum',
       'header (translation required)': 'header',
       'footer (translation required)': 'footer',
@@ -76,7 +76,7 @@ roles = {
     'luettelo': 'index',
     'alaindeksi': 'subscript',
     'indeksi': 'subscript',
-    'yl\u00e4indeksi': 'superscript',
+    'yläindeksi': 'superscript',
     'title-reference (translation required)': 'title-reference',
     'title (translation required)': 'title-reference',
     'pep-reference (translation required)': 'pep-reference',

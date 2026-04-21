@@ -1,4 +1,4 @@
-# $Id: cs.py 9030 2022-03-05 23:28:32Z milde $
+# $Id: cs.py 9452 2023-09-27 00:11:54Z milde $
 # Author: Marek Blaha <mb@dat.cz>
 # Copyright: This module has been placed in the public domain.
 
@@ -21,19 +21,19 @@ directives = {
       # jak rozlisit caution a warning?
       'caution (translation required)': 'caution',
       'code (translation required)': 'code',
-      'nebezpe\u010D\u00ED': 'danger',
+      'nebezpečí': 'danger',
       'chyba': 'error',
       'rada': 'hint',
-      'd\u016Fle\u017Eit\u00E9': 'important',
-      'pozn\u00E1mka': 'note',
+      'důležité': 'important',
+      'poznámka': 'note',
       'tip (translation required)': 'tip',
-      'varov\u00E1n\u00ED': 'warning',
+      'varování': 'warning',
       'admonition (translation required)': 'admonition',
       'sidebar (translation required)': 'sidebar',
-      't\u00E9ma': 'topic',
+      'téma': 'topic',
       'line-block (translation required)': 'line-block',
       'parsed-literal (translation required)': 'parsed-literal',
-      'odd\u00EDl': 'rubric',
+      'oddíl': 'rubric',
       'moto': 'epigraph',
       'highlights (translation required)': 'highlights',
       'pull-quote (translation required)': 'pull-quote',
@@ -55,7 +55,7 @@ directives = {
       'replace (translation required)': 'replace',
       'unicode (translation required)': 'unicode',
       'datum': 'date',
-      't\u0159\u00EDda': 'class',
+      'třída': 'class',
       'role (translation required)': 'role',
       'default-role (translation required)': 'default-role',
       'title (translation required)': 'title',

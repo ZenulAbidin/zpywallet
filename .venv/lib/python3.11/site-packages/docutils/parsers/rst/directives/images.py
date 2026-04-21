@@ -1,4 +1,4 @@
-# $Id: images.py 9037 2022-03-05 23:31:10Z milde $
+# $Id: images.py 9500 2023-12-14 22:38:49Z milde $
 # Author: David Goodger <goodger@python.org>
 # Copyright: This module has been placed in the public domain.
 
@@ -32,12 +32,17 @@ class Image(Directive):
     align_h_values = ('left', 'center', 'right')
     align_v_values = ('top', 'middle', 'bottom')
     align_values = align_v_values + align_h_values
+    loading_values = ('embed', 'link', 'lazy')
 
     def align(argument):
-        # This is not callable as self.align.  We cannot make it a
+        # This is not callable as `self.align()`.  We cannot make it a
         # staticmethod because we're saving an unbound method in
         # option_spec below.
         return directives.choice(argument, Image.align_values)
+
+    def loading(argument):
+        # This is not callable as `self.loading()` (see above).
+        return directives.choice(argument, Image.loading_values)
 
     required_arguments = 1
     optional_arguments = 0
@@ -48,6 +53,7 @@ class Image(Directive):
                    'scale': directives.percentage,
                    'align': align,
                    'target': directives.unchanged_required,
+                   'loading': loading,
                    'class': directives.class_option,
                    'name': directives.unchanged}
 
@@ -91,6 +97,8 @@ class Image(Directive):
             del self.options['target']
         set_classes(self.options)
         image_node = nodes.image(self.block_text, **self.options)
+        (image_node.source,
+         image_node.line) = self.state_machine.get_source_and_line(self.lineno)
         self.add_name(image_node)
         if reference_node:
             reference_node += image_node
@@ -124,6 +132,8 @@ class Figure(Image):
         if isinstance(image_node, nodes.system_message):
             return [image_node]
         figure_node = nodes.figure('', image_node)
+        (figure_node.source, figure_node.line
+         ) = self.state_machine.get_source_and_line(self.lineno)
         if figwidth == 'image':
             if PIL and self.state.document.settings.file_insertion_enabled:
                 imagepath = url2pathname(image_node['uri'])

@@ -1,4 +1,4 @@
-# $Id: sv.py 9030 2022-03-05 23:28:32Z milde $
+# $Id: sv.py 9452 2023-09-27 00:11:54Z milde $
 # Author: Adam Chodorowski <chodorowski@users.sourceforge.net>
 # Copyright: This module has been placed in the public domain.
 
@@ -41,7 +41,7 @@ labels = {
 bibliographic_fields = {
     # 'Author' and 'Authors' identical in Swedish; assume the plural:
     'författare': 'authors',
-    ' n/a': 'author',
+    ' n/a': 'author',  # removing leads to (spurious) test failure
     'organisation': 'organization',
     'adress': 'address',
     'kontakt': 'contact',

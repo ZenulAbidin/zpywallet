@@ -1,4 +1,4 @@
-# $Id: body.py 9030 2022-03-05 23:28:32Z milde $
+# $Id: body.py 9500 2023-12-14 22:38:49Z milde $
 # Author: David Goodger <goodger@python.org>
 # Copyright: This module has been placed in the public domain.
 
@@ -210,7 +210,8 @@ class MathBlock(Directive):
             if not block:
                 continue
             node = nodes.math_block(self.block_text, block, **self.options)
-            node.line = self.content_offset + 1
+            (node.source,
+             node.line) = self.state_machine.get_source_and_line(self.lineno)
             self.add_name(node)
             _nodes.append(node)
         return _nodes

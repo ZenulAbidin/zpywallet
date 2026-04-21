@@ -9,8 +9,8 @@
 #
 # .. _2-Clause BSD license: https://opensource.org/licenses/BSD-2-Clause
 #
-# Revision: $Revision: 9064 $
-# Date: $Date: 2022-06-10 13:08:13 +0200 (Fr, 10. Jun 2022) $
+# Revision: $Revision: 9107 $
+# Date: $Date: 2022-07-06 15:59:57 +0200 (Mi, 06. Jul 2022) $
 
 """Generic command line interface for the `docutils` package.
 
@@ -31,8 +31,8 @@ class CliSettingsSpec(docutils.SettingsSpec):
 
     Configurable reader, parser, and writer components.
 
-    The "--writer" default will change to 'html' when this becomes
-    an alias for 'html5'.
+    The "--writer" default will change to 'html' in Docutils 2.0
+    when 'html' becomes an alias for the current value 'html5'.
     """
 
     settings_spec = (

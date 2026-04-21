@@ -56,12 +56,11 @@ class Reporter:
         else:
             line = text.splitlines()[-1]
 
+        # lineno might be None if the error was during tokenization
         # lineno might be 0 if the error came from stdin
-        lineno = max(lineno, 1)
+        lineno = max(lineno or 0, 1)
 
         if offset is not None:
-            if sys.version_info < (3, 8) and text is not None:
-                offset = offset - (len(text) - len(line)) + 1
             # some versions of python emit an offset of -1 for certain encoding errors
             offset = max(offset, 1)
             self._stderr.write('%s:%d:%d: %s\n' %

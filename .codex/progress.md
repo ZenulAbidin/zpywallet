@@ -10,12 +10,12 @@
 - Packaging/build: `setuptools` via `setup.py`, `setup.cfg`, `python -m build`.
 - Dependency management: `pip` with `requirements.txt` and `requirements-dev.txt`.
 - Validation: `tox`, `pytest`, `coverage`, `flake8`, `Sphinx`, `rstcheck`.
-- CI evidence: `.github/workflows/commit.yml` runs `python -m pip install -r requirements-dev.txt` then `tox` on Python 3.8-3.12.
+- CI evidence: `.github/workflows/commit.yml` runs `python -m pip install -r requirements-dev.txt` then `tox` on Python 3.10-3.14.
 - Local workspace constraints:
   - `python3` is available and works with `venv`.
   - The host Python is externally managed under PEP 668, so direct global `pip install` is blocked.
   - Local validation now runs in `.venv/` with repo-declared dev and runtime dependencies installed.
-  - A local `.venv/` exists for validation but is an untracked environment artifact, not repository source.
+  - This branch currently tracks `.venv/` from an earlier baseline commit, so local tool installs dirty many environment files that are not part of the intended source changes.
 
 ## Likely Validation Commands
 - Install/setup: `python3 -m pip install -r requirements-dev.txt`
@@ -33,12 +33,36 @@
 - Query balances, UTXOs, fees, and address history through providers.
 
 ## Backlog
+- `done` `test/build/lint/type failure`: harden the mock HTTP test server shutdown path and socket reuse so address-provider tests stop flaking under CI timing and port reuse.
 - `done` `test/build/lint/type failure`: make GitHub Actions coverage upload conditional so missing `CODECOV_TOKEN` no longer fails the entire matrix after successful tox runs.
 - `done` `broken flow`: fix transaction creation loop in `zpywallet/transactions/encode.py` so list inputs can be signed.
 - `done` `developer experience issue affecting completion`: create a local `.venv` and install repo-declared tooling so runtime validation works under PEP 668.
 - `done` `broken flow`: remove wasted PBKDF2 work in `zpywallet/utils/aes.py` that made wallet create/deserialize paths unreasonably slow.
 - `done` `test/build/lint/type failure`: add regression coverage proving the optimized PBKDF2 output matches the legacy-derived prefix used by wallet encryption.
 - `done` `broken flow`: make broadcast fan-out actually concurrent so public-node propagation no longer serializes blocking network calls across every provider.
+- `done` `developer experience issue affecting completion`: repair the package/release path so `requirements-dev.txt` installs `build`, modern `twine`, correct package homepage metadata, and clean mnemonic package data without leaking cache artifacts into release archives.
+- `done` `broken flow`: repair the documented BTC wallet send path so decrypted WIFs, fee policies, address-hash lookup, and segwit `nsequence` handling all work under the real `Wallet.create_transaction()` flow.
+- `done` `security/validation/data integrity issue`: fix wallet-core helpers so `get_balance()` only counts confirmed UTXOs as confirmed and `random_address()` draws from the full configured receive gap instead of collapsing to a low-byte subset.
+- `done` `security/validation/data integrity issue`: make `Transaction.sat_inputs()` and `sat_outputs()` return copies so witness data and output metadata stay stable across repeated public API calls.
+- `done` `broken flow`: make the documented default sqlite cache real for database-backed EVM clients so `Wallet.get_transaction_history()` can read ETH history without an explicit DB URI.
+- `done` `broken flow`: generate correct P2SH output scripts for script-hash recipient addresses instead of serializing them as P2PKH outputs.
+- `done` `security/validation/data integrity issue`: use Web3 receipts for confirmed EVM history so cached gas and total fees reflect actual execution rather than the submitted gas limit.
+- `done` `missing in-scope feature`: route BTC-like wallet change to a monitored internal/change branch and include change-branch keys when later spending change UTXOs.
+- `done` `broken flow`: fix BIP32 watch-only/public child derivation and xpub round-tripping so the documented public-only path matches the private derivation path for non-hardened children.
+- `done` `broken flow`: normalize EVM signed transactions into raw hex strings and reject multi-destination EVM sends instead of silently discarding extra outputs.
+- `done` `security/validation/data integrity issue`: store `Destination` values internally as integer sats/wei, add explicit raw-unit support, and keep wallet change calculation in base units end to end.
+- `done` `developer experience issue affecting completion`: align the public docs with the current API surface (`sat_feerate()`, `CryptoClient`, raw-unit destination examples, and the updated limitations text).
+- `done` `test/build/lint/type failure`: revalidate the current tree end to end with focused wallet/EVM tests, full `pytest`, repo-native `tox` lint/docs, and the release build metadata checks.
+- `done` `broken flow`: make `CryptoClient.initialize_database()` actually fail over across cache providers instead of aborting after the first transient backend error.
+- `done` `broken flow`: make `Wallet.broadcast_transaction()` return the underlying provider results instead of silently discarding the broadcast outcome.
+- `done` `broken flow`: restore deterministic Ethereum provider dispatch while keeping real concurrent fan-out by moving blocking ETH broadcast I/O into provider-local thread offloads and gathering the awaitables directly.
+- `done` `developer experience issue affecting completion`: fix the usage guide examples so `CryptoClient.get_balance()` and `BitcoinSegwitMainNet` are shown with the actual current API names.
+- `done` `developer experience issue affecting completion`: fix the usage guide text so it matches the current wallet API and behavior (`random_address()`, monitored change addresses, and corrected serialization wording).
+- `done` `security/validation/data integrity issue`: fix hash-only address decoding and mixed spent/unspent wallet output enumeration so `PublicKey.from_address()` works for base58/bech32 inputs and `Wallet.get_utxos(only_unspent=False)` no longer misindexes or crashes.
+- `done` `security/validation/data integrity issue`: replace the no-op low-level BTC signing tests with real manual UTXO fixtures so legacy, segwit, mixed-input, and explicit-change signing paths are actually exercised.
+- `done` `broken flow`: make BTC wallet fee handling keep caller destination lists immutable, honor `FeePolicy.PROPORTIONAL` in the final signed outputs, and allow exact-spend/no-change transactions instead of rejecting them.
+- `done` `developer experience issue affecting completion`: perform a final repository audit against README, CI, tests, and unfinished-work markers on a clean baseline and confirm that no additional in-scope source change is justified.
+- `out_of_scope` `polish`: wallet construction still spends several seconds deriving default-gap addresses, but reducing that further now would require a larger wallet-state redesign or protobuf persistence change than the current repository evidence justifies.
 - `out_of_scope` `polish`: existing TODO/XXX comments in provider internals are not tied to a current failing core flow and were left unchanged.
 
 ## Validations Attempted
@@ -72,20 +96,186 @@
 - `.venv/bin/python -m pytest tests -q` -> success on current tree (`105 passed, 1 warning in 211.38s`)
 - `.venv/bin/python -m tox -e flake8` -> success on current tree
 - `.venv/bin/python -m tox -e docs` -> success on current tree
+- `env GITHUB_ACTIONS=true .venv/bin/python -m tox -vv` -> failed before fix; surfaced a flaky mock-server failure in `tests/test_09_address.py::TestAddress::test_000_btc_blockcypher_address` caused by port reuse and an ineffective shutdown request
+- `.venv/bin/python -m pytest tests/test_09_address.py::TestAddress::test_000_btc_blockcypher_address -q` -> success after mock-server fix (`1 passed, 1 warning in 15.30s`)
+- `.venv/bin/python -m pytest tests/test_09_address.py -q` -> success after mock-server fix (`7 passed, 1 warning in 24.70s`)
+- `env GITHUB_ACTIONS=true .venv/bin/python -m tox -e py311,flake8,docs` -> success after mock-server fix (`py311`, `flake8`, and `docs` all passed)
+- `.venv/bin/python -m pytest tests/test_09_address.py -q` -> success on current tree (`7 passed, 1 warning in 15.46s`)
+- `env GITHUB_ACTIONS=true .venv/bin/python -m tox -e py311,flake8,docs` -> success on current tree (`py311`, `flake8`, and `docs` all passed in 240.83s`)
+- `.venv/bin/python -m pytest tests -q` -> success on current tree (`105 passed, 1 warning in 226.81s`)
+- `env GITHUB_ACTIONS=true .venv/bin/python -m tox -e py311,flake8,docs` -> success on current tree (`py311`, `flake8`, and `docs` all passed in 311.79s`)
+- `.venv/bin/python -m build` -> failed before packaging fix (`No module named build`)
+- `.venv/bin/python -m twine check dist/*` -> failed before packaging fix under `twine==4.0.2` (`KeyError: 'license'`)
+- `.venv/bin/python -m pip install build 'twine>=5'` -> success; used to identify a working local release-tool version
+- `.venv/bin/python -m pip install -r requirements-dev.txt` -> success after updating the dev-tool pins
+- `.venv/bin/python -m pytest tests/test_04_mnemonic.py -q` -> success after packaging-data changes (`7 passed, 1 warning in 11.83s`)
+- `.venv/bin/python -m build` -> success after packaging fixes; rebuilt clean `sdist` and wheel with the intended mnemonic assets
+- `.venv/bin/python -m twine check dist/*` -> success after packaging fixes
+- `python3 - <<'PY' ... inspect dist metadata and archive contents ... PY` -> success; both archives now advertise `https://github.com/ZenulAbidin/zpywallet` and contain zero cache artifacts
+- `.venv/bin/python - <<'PY' ... wallet.create_transaction(...) with a mocked BTC UTXO ... PY` -> failed before fix (`AttributeError: 'str' object has no attribute 'decode'`), confirming the wallet-level BTC send path was still broken
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -q` -> failed before the segwit follow-up fix on the new wallet regression (`TypeError: fromhex() argument must be str, not bytes`), exposing a second send-path mismatch in `assemble_segwit_payload()`
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -q` -> success after the wallet-core fixes (`10 passed, 1 warning in 100.31s`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/wallet.py zpywallet/destination.py zpywallet/transactions/encode.py tests/test_06_wallet.py` -> success
+- `.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success after the segwit payload fix (`8 passed, 1 warning in 2.19s`)
+- `.venv/bin/python -m pytest tests -q` -> success on the current wallet-core tree (`110 passed, 1 warning in 207.90s`)
+- `.venv/bin/python -m tox -e flake8` -> success on the current wallet-core tree
+- `.venv/bin/python - <<'PY' ... Transaction(...).sat_inputs(); Transaction(...).sat_inputs(include_witness=True) ... PY` -> failed before fix; the first call deleted witness data from the wrapper's cached input metadata
+- `.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success after the transaction-wrapper copy fix (`10 passed, 1 warning in 2.40s`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/transaction.py tests/test_08_transaction.py` -> success
+- `.venv/bin/python - <<'PY' ... SQLTransactionStorage(None).get_block_height() ... PY` -> failed before fix (`DatabaseError: Error getting block height from database: 'NoneType' object is not subscriptable`), confirming the documented default sqlite cache was not actually configured
+- `.venv/bin/python - <<'PY' ... Web3Client(..., url='https://example.invalid').get_transaction_history() ... PY` -> failed before fix (`NetworkException: Failed to get transaction history: Error storing txo: 'NoneType' object is not subscriptable`)
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -k 'eth_wallet_create_transaction or eth_wallet_history_uses_default_sqlite_cache' -q` -> success after the cache fix (`2 passed, 9 deselected, 1 warning in 16.97s`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/address/loadbalancer.py tests/test_06_wallet.py` -> success after the cache fix
+- `.venv/bin/python -m pytest tests/test_06_wallet.py tests/test_09_address.py -q` -> success after the cache fix (`18 passed, 1 warning in 105.41s`)
+- `.venv/bin/python - <<'PY' ... PublicKey.address_script('3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy', BitcoinMainNet) ... PY` -> reproduced the bug before fix; returned a P2PKH script (`76a914...88ac`) for a P2SH address
+- `.venv/bin/python -m pytest tests/test_12_keys.py -q` -> success after the P2SH fix (`4 passed, 1 warning in 4.38s`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/utils/keys.py zpywallet/transactions/encode.py tests/test_12_keys.py` -> success after the P2SH fix
+- `.venv/bin/python -m pytest tests/test_06_wallet.py tests/test_08_transaction.py tests/test_12_keys.py -q` -> success after the P2SH fix (`25 passed, 1 warning in 102.10s`)
+- `.venv/bin/python -m pytest tests/test_08_transaction.py tests/test_09_address.py -k 'evm or web3_client_reads_blocks_into_cache' -q` -> success after the receipt fix (`2 passed, 16 deselected, 1 warning in 2.32s`)
+- `.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/address/web3node.py zpywallet/transaction.py tests/test_08_transaction.py tests/test_09_address.py` -> success after the receipt fix
+- `.venv/bin/python -m pytest tests/test_08_transaction.py tests/test_09_address.py -q` -> success after the receipt fix (`18 passed, 1 warning in 4.44s`)
+- `.venv/bin/python -m pytest tests/test_06_wallet.py tests/test_08_transaction.py tests/test_09_address.py tests/test_12_keys.py -q` -> success on the current tree (`33 passed, 1 warning in 81.49s`)
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -k 'tracks_change_branch_separately or calculate_change_uses_internal_branch or create_wallet or wallet_create_transaction_executes_btc_flow' -q` -> success after the change-branch fix (`4 passed, 9 deselected, 1 warning in 63.88s`)
+- `.venv/bin/python -m pytest tests/test_08_transaction.py tests/test_09_address.py tests/test_12_keys.py -q` -> success on the current tree after the change-branch fix (`22 passed, 1 warning in 9.81s`)
+- `.venv/bin/python -m pytest tests/test_05_zpywallet.py -k test_006_bip84 -q` -> failed while probing public-only derivation (`watch_only` child address did not match the private-path result), which surfaced a separate BIP32 watch-only bug
+- `.venv/bin/python -m pytest tests/test_06_wallet.py -q` -> not completed on the current tree before manual stop; runtime stayed CPU-bound for multiple minutes after the change-branch fix, which is now tracked as a performance follow-up
+- `ps -o pid,etime,pcpu,cmd -p <pytest-pid>` -> showed the long wallet-suite run remained CPU-bound rather than hung (about 45-49% CPU after multiple minutes)
+- `./.venv/bin/python -m pytest tests/test_05_zpywallet.py -k 'test_006_public_only_child_derivation_matches_private_path or test_006_bip84 or test_001_bip32 or test_002_bip32 or test_003_bip32 or test_004_bip32 or test_005_bip32' -q` -> success after the BIP32 fix (`7 passed, 4 deselected, 1 warning in 2.42s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/utils/bip32.py tests/test_05_zpywallet.py` -> success after the BIP32 fix
+- `./.venv/bin/python - <<'PY' ... Wallet(..., change_gap_limit in {1,20,1000}) ... PY` -> success; wallet construction took about `4.88s`, `4.91s`, and `6.92s` respectively, so the remaining runtime cost is measurable but not a broken flow by itself
+- `./.venv/bin/python -m tox -e flake8` -> success on the final tree
+- `./.venv/bin/python -m pytest tests -q` -> success on the final tree (`118 passed, 1 warning in 529.61s`)
+- `./.venv/bin/python -m pytest tests/test_08_transaction.py -k 'test_005_eth_sign or test_005b_evm_transactions_reject_multiple_destinations' -q` -> success after the EVM signing-output fix (`2 passed, 10 deselected, 1 warning in 6.90s`)
+- `./.venv/bin/python -m pytest tests/test_07_broadcast.py -k 'test_009_eth_generic_broadcast_uses_modern_web3_api or test_011_eth_tx_hash_accepts_signed_transaction_like_objects or test_012_eth_broadcast_normalizes_signed_transaction_objects' -q` -> success after the EVM broadcast normalization fix (`3 passed, 8 deselected, 1 warning in 6.99s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/transactions/encode.py zpywallet/broadcast/eth/all.py zpywallet/broadcast/eth/fullnode.py tests/test_07_broadcast.py tests/test_08_transaction.py` -> success after the EVM flow fix
+- `./.venv/bin/python -m pytest tests/test_08_transaction.py -k 'test_005_eth_sign or test_005b_evm_transactions_reject_multiple_destinations or test_005c_destination_accepts_raw_units' -q` -> success after the raw-unit destination change (`3 passed, 10 deselected, 1 warning in 5.42s`)
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py -k 'test_010_wallet_calculate_change_uses_internal_branch or test_011_wallet_change_uses_raw_unit_arithmetic' -q` -> success after the raw-unit change (`2 passed, 12 deselected, 1 warning in 18.08s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/destination.py zpywallet/wallet.py zpywallet/transactions/encode.py zpywallet/broadcast/eth/all.py zpywallet/broadcast/eth/fullnode.py tests/test_06_wallet.py tests/test_07_broadcast.py tests/test_08_transaction.py` -> success after the raw-unit and docs-alignment changes
+- `./.venv/bin/python -m tox -e docs` -> success after the raw-unit docs update
+- `./.venv/bin/python -m tox -e docs` -> success after the usage-guide/API-name cleanup
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py tests/test_07_broadcast.py tests/test_08_transaction.py -q` -> success on the current tree (`38 passed, 1 warning in 479.01s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the current tree after the final wallet/EVM/docs patchset
+- `./.venv/bin/python -m tox -e docs` -> success on the current tree after the final wallet/EVM/docs patchset
+- `rg -n "TODO|FIXME|XXX|HACK|stub|placeholder|not implemented|NotImplemented|pass$|@pytest\\.mark\\.skip|xfail" zpywallet tests docs README.rst -g '!zpywallet/generated/**'` -> reviewed; source hits remain abstract-base guards, internal notes, or test fixtures, while generated `docs/build` hits are not repo-source work
+- `./.venv/bin/python -m pytest tests -q` -> success on the current tree (`123 passed, 1 warning in 506.42s`)
+- `./.venv/bin/python -m build` -> success on the current tree
+- `./.venv/bin/python -m twine check dist/*` -> success on the current tree
+- `./.venv/bin/python -m pytest tests/test_09_address.py -k 'initialize_database_fails_over_cache_providers or web3_client_reads_blocks_into_cache' -q` -> success after the cache-provider failover fix (`2 passed, 6 deselected, 1 warning in 2.51s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/address/loadbalancer.py tests/test_09_address.py` -> success after the cache-provider failover fix
+- `./.venv/bin/python -m pytest tests/test_09_address.py -q` -> success after the cache-provider failover fix (`8 passed, 1 warning in 4.56s`)
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py -k 'test_003b_wallet_broadcast_returns_provider_results or test_005_eth_wallet_create_transaction or test_006_wallet_create_transaction_executes_btc_flow' -q` -> success after the wallet-broadcast return fix (`3 passed, 12 deselected, 1 warning in 189.66s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/wallet.py tests/test_06_wallet.py` -> success after the wallet-broadcast return fix
+- `./.venv/bin/python -m tox -e docs` -> success after the usage-guide example fix
+- `./.venv/bin/python - <<'PY' ... PublicKey.from_address('bc1qw508...') ... PY` -> failed before fix (`AttributeError: 'bytes' object has no attribute 'format'`), exposing that hash-only address decoding still fell through into full public-key formatting
+- `./.venv/bin/python - <<'PY' ... wallet.get_utxos(only_unspent=False) ... PY` -> failed before fix with the same hash-only bug while probing a mixed spent/unspent transaction, confirming the public wallet output-enumeration path was still fragile
+- `./.venv/bin/python -m pytest tests/test_12_keys.py -q` -> success after the hash-only address fix (`5 passed, 1 warning in 5.25s`)
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py -k 'test_012_wallet_get_utxos_can_include_spent_outputs or test_006_wallet_create_transaction_executes_btc_flow or test_007_wallet_get_balance_counts_only_confirmed_utxos' -q` -> success after the mixed-output UTXO fix (`3 passed, 13 deselected, 1 warning in 40.36s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/utils/keys.py zpywallet/utxo.py zpywallet/wallet.py tests/test_06_wallet.py tests/test_12_keys.py` -> success after the key/UTXO fixes
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py tests/test_08_transaction.py tests/test_12_keys.py -q` -> manually stopped after several minutes while still CPU-bound; retained the narrower passing regressions instead of waiting on a duplicate broad run
+- `rg -n "if len\\(utxos\\) > 0|AddressProvider\\(\\[], transactions=\\[tx\\]\\)" tests/test_08_transaction.py tests/test_06_wallet.py tests -g '!zpywallet/generated/**'` -> revealed that the low-level BTC signing tests in `tests/test_08_transaction.py` were short-circuiting before they ever called `create_transaction()`
+- `./.venv/bin/python - <<'PY' ... manual legacy/segwit UTXO signing smoke ... PY` -> success; confirmed that explicit manual UTXO fixtures can exercise the real signer paths and produce parseable legacy/segwit transactions
+- `./.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success after the signer-test hardening (`13 passed, 1 warning in 4.40s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 tests/test_08_transaction.py` -> success after the signer-test hardening
+- `./.venv/bin/python -m tox -e flake8` -> success on the current tree after the signer-test hardening
+- `./.venv/bin/python -m pytest tests -q` -> success on the current tree after the signer-test hardening (`127 passed, 1 warning in 597.42s`)
+- `git status --short --branch` -> clean working tree after committing the pending signer-test/progress changes (`ahead 10`)
+- `./.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success on the committed tree during the completion audit (`13 passed, 1 warning in 2.23s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 tests/test_08_transaction.py` -> success on the committed tree during the completion audit
+- `rg -n "random_adress|does not currently make use of change|byte strem|mnemonic phrase you want to do" docs/source README.rst` -> success after the usage-guide sync fix; no stale phrases remained
+- `./.venv/bin/python -m tox -e docs` -> success after syncing the usage guide with the current wallet behavior (`docs: OK`)
+- `./.venv/bin/python -m tox` -> failed before the latest ETH broadcast fix; `tests/test_07_broadcast.py::TestBroadcast::test_012_eth_broadcast_normalizes_signed_transaction_objects` exposed nondeterministic provider dispatch order after the earlier concurrency change (`1 failed, 126 passed`)
+- `./.venv/bin/python -m pytest tests/test_07_broadcast.py -q` -> success after the ETH broadcast dispatch fix (`11 passed, 1 warning in 42.84s`)
+- `./.venv/bin/python -m flake8 --select=C,E,F,W,B,B950 --extend-ignore=W503,E203,E741,F401,E201 --exclude=zpywallet/generated --max-line-length=120 zpywallet/broadcast/eth/all.py zpywallet/broadcast/eth/blockcypher.py zpywallet/broadcast/eth/fullnode.py zpywallet/broadcast/eth/mew.py` -> success after the ETH broadcast dispatch fix
+- `./.venv/bin/python -m pytest tests -q` -> success on the final tree after the ETH broadcast dispatch fix (`127 passed, 1 warning in 616.62s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the final tree after the ETH broadcast dispatch fix
+- `./.venv/bin/python -m tox -e docs` -> success on the final tree after the ETH broadcast dispatch fix (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/*` -> success on the final tree after the ETH broadcast dispatch fix
+- `git status --short --branch` -> clean baseline before the final repo audit (`ahead 13`)
+- `sed -n '1,260p' README.rst && sed -n '1,260p' tox.ini && sed -n '1,260p' setup.cfg && sed -n '1,260p' .github/workflows/commit.yml && sed -n '1,260p' .github/workflows/release-publish.yml` -> reviewed; confirmed the project identity, supported Python matrix, repo-native validation commands, and release workflow from the repository itself
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' '@pytest\\.mark\\.skip|xfail|skip\\(|TODO|FIXME|XXX|HACK|NotImplemented|not implemented|pass$' zpywallet tests docs README.rst` -> reviewed; remaining hits are abstract-base guards, provider retry/failover branches, internal notes, or test scaffolding rather than a newly justified in-scope blocker
+- `./.venv/bin/python -m tox` -> started during the final audit; local `py310` skipped because that interpreter is not installed in this container, and the duplicate `py311` rerun was intentionally stopped because the exact same clean tree already has a recorded green full-suite pass in this progress log
+- `./.venv/bin/python -m pytest tests -q` -> duplicate full-suite rerun started during the final audit and then stopped intentionally for the same reason: the clean tree was already fully validated earlier in this progress log and no source files changed during the audit
+- `git status --short --branch` -> current tree is still clean before and after this iteration's validation pass (`ahead 14`)
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed on the current tree; hits are abstract-base guards, provider retry/cache fallbacks, comments, or test scaffolding rather than a newly justified in-scope blocker
+- `./.venv/bin/python -m pytest tests -q` -> success on the current tree (`127 passed, 1 warning in 628.53s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the current tree (`flake8: OK`)
+- `./.venv/bin/python -m tox -e docs` -> success on the current tree (`docs: OK`)
+- `ps -eo pid,etime,pcpu,pmem,args | grep '[p]ytest tests -q'` -> confirmed the long-running full-suite process stayed CPU-bound during the audit rather than hanging
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current tree; release artifacts still build and pass metadata validation cleanly
+- `git status --short --branch` -> only `.codex/progress.md` was dirty at turn start, so a new baseline commit was created before further work (`ahead 15` afterward)
+- `./.venv/bin/python --version` -> success (`Python 3.11.2`)
+- `./.venv/bin/python -m pytest tests -q` -> success on the current committed tree (`127 passed, 1 warning in 588.23s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the current committed tree
+- `./.venv/bin/python -m tox -e docs` -> failed only when launched concurrently with a package build from the same worktree (`FileNotFoundError: zpywallet-0.7.0/zpywallet/utils` during parallel sdist creation); reran clean below
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current committed tree
+- `git status --short --branch` -> clean worktree after the validation commands completed (`ahead 15`)
+- `./.venv/bin/python -m tox -e docs` -> success on a clean rerun (`docs: OK`), confirming the earlier failure was validation contention rather than a source regression
+- `sed -n '1,260p' AGENTS.md && sed -n '1,220p' README.rst && sed -n '1,220p' tox.ini && sed -n '1,220p' setup.py && sed -n '1,220p' setup.cfg && find .github/workflows -maxdepth 1 -type f -print -exec sed -n '1,220p' '{}' ';'` -> reviewed on the current tree; reconfirmed project identity, supported workflow, and CI-native commands directly from repository evidence
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed again on the current tree; remaining hits are abstract/fallback scaffolding or comments, not a newly justified in-scope blocker
+- `ps -eo pid,etime,pcpu,pmem,args | grep '[p]ytest tests -q'` -> confirmed during this iteration that the long full-suite run stayed CPU-bound rather than hanging
+- `./.venv/bin/python -m pytest tests -q` -> success on the current tree (`127 passed, 1 warning in 588.46s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the current tree (`flake8: OK`)
+- `./.venv/bin/python -m tox -e docs` -> success on the current tree (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current tree; release artifacts still build and pass metadata validation cleanly
+- `git status --short --branch` -> clean worktree before updating this progress file (`ahead 16`)
+- `git add -A -- . ':(exclude)agents.md' ':(exclude)AGENTS.md' && git commit -m 'chore: baseline before autonomous work'` -> success; captured the carried-over progress-file delta before making new source changes (`ahead 17`)
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed again on the live tree; this pass surfaced a still-live wallet fee/change defect in source inspection rather than a new TODO marker
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py -q -k 'test_006_wallet_create_transaction_executes_btc_flow or test_010_wallet_calculate_change_uses_internal_branch or test_011_wallet_change_uses_raw_unit_arithmetic or test_013_wallet_create_transaction_applies_proportional_fee_outputs or test_014_wallet_create_transaction_allows_exact_spend_without_change'` -> success after the wallet fee/change fix (`5 passed, 13 deselected, 1 warning in 75.01s`)
+- `./.venv/bin/python -m pytest tests/test_08_transaction.py -q` -> success after the wallet fee/change fix (`13 passed, 1 warning in 7.23s`)
+- `./.venv/bin/python -m tox -e flake8` -> success after the wallet fee/change fix (`flake8: OK`)
+- `./.venv/bin/python -m pytest tests/test_06_wallet.py -q -k 'not test_003_wallet_broadcast'` -> manually stopped after about 3 minutes while still CPU-bound; retained the narrower passing wallet regressions instead of waiting on another slow duplicate suite run
+- `./.venv/bin/python -m pytest tests -q` -> success on the wallet fee/change tree (`129 passed, 1 warning in 608.18s`)
+- `./.venv/bin/python -m tox -e docs` -> success on the wallet fee/change tree (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the wallet fee/change tree; release artifacts still build and pass metadata checks cleanly
+- `git status --short --branch` -> clean committed tree before the final clean-tree audit (`ahead 18`)
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed again on the committed tree; remaining hits are still abstract guards, retry/fallback branches, comments, or test scaffolding rather than a newly justified in-scope blocker
+- `./.venv/bin/python -m pytest tests -q` -> success on the committed tree during the final clean-tree audit (`129 passed, 1 warning in 694.82s`)
+- `./.venv/bin/python -m tox -e flake8` -> success on the committed tree during the final clean-tree audit (`flake8: OK`)
+- `./.venv/bin/python -m tox -e docs` -> success on the committed tree during the final clean-tree audit (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the committed tree during the final clean-tree audit; release artifacts still build and pass metadata validation cleanly
+- `git status --short --branch` -> tree stayed clean after the final clean-tree audit, before updating this progress file (`ahead 18`)
+- `git add -A -- ':!AGENTS.md' ':!agents.md' && git commit -m "chore: baseline before autonomous work"` -> success; created the required one-time baseline commit for this session before any new modifications (`ahead 19`)
+- `git status --short --branch && sed -n '1,260p' setup.py && sed -n '1,220p' requirements-dev.txt && sed -n '1,220p' requirements.txt` -> reviewed on the clean tree; reconfirmed setuptools packaging, pip requirements workflow, and the current release/runtime dependency set directly from repository files
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.tox/**' --glob '!dist/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed again on the clean tree; remaining hits are exception classes, abstract guards, retry/fallback branches, comments, or test scaffolding rather than a newly justified in-scope blocker
+- `sed -n '1,200p' zpywallet/transactions/decode.py && sed -n '1,220p' zpywallet/mnemonic/mnemonic.py && sed -n '1,200p' zpywallet/errors.py && sed -n '380,520p' zpywallet/transactions/encode.py && sed -n '420,500p' zpywallet/wallet.py` -> reviewed the remaining production-path `pass` sites and confirmed they are exception classes or defensive fallbacks, not live unimplemented core flows
+- `./.venv/bin/python -m pytest tests -q` -> success on the current clean tree (`129 passed, 1 warning in 561.88s`)
+- `ps -eo pid,etime,pcpu,pmem,args | grep '[p]ytest tests -q'` -> confirmed during this session that the long full-suite run stayed CPU-bound rather than hanging while the slow wallet benchmarks were executing
+- `./.venv/bin/python -m tox -e flake8` -> success on the current clean tree (`flake8: OK`)
+- `./.venv/bin/python -m tox -e docs` -> success on the current clean tree (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/* && rm -rf dist` -> success on the current clean tree; release artifacts still build and pass metadata validation cleanly
+- `git status --short --branch` -> tree stayed clean after this session's completion audit, before updating this progress file (`ahead 19`)
+- `git status --short --branch` -> clean tree at the start of this iteration (`ahead 20`), so no new baseline commit was needed before the progress-file update
+- `sed -n '1,240p' README.rst && sed -n '1,260p' setup.py && sed -n '1,260p' setup.cfg && sed -n '1,260p' tox.ini && sed -n '1,220p' .github/workflows/*` -> reviewed again on the current tree; reconfirmed package/library identity, supported Python versions, repo-native validation commands, and release workflow directly from repository files
+- `sed -n '1,220p' requirements-dev.txt && sed -n '1,220p' requirements.txt` -> reviewed again on the current tree; reconfirmed the pip requirements workflow and current runtime/dev dependency set
+- `rg -n --hidden --glob '!.git/**' --glob '!.venv/**' --glob '!.venv313/**' --glob '!.venv314/**' --glob '!.tox/**' --glob '!docs/build/**' -e '@pytest\\.mark\\.skip' -e 'xfail' -e 'skip\\(' -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'NotImplemented' -e 'not implemented' -e 'pass$' zpywallet tests docs README.rst` -> reviewed again on the current tree; remaining hits are still exception classes, abstract guards, provider fallback branches, comments, or test scaffolding rather than a newly justified in-scope blocker
+- `sed -n '1,220p' zpywallet/address/loadbalancer.py && sed -n '1,220p' zpywallet/address/provider.py && sed -n '1,140p' zpywallet/address/web3node.py && sed -n '380,540p' zpywallet/transactions/encode.py && sed -n '420,500p' zpywallet/wallet.py` -> reviewed the live production-path fallback/pass sites again on the current tree; they still map to defensive fallbacks or provider error tolerance rather than an unimplemented supported flow
+- `./.venv/bin/python -m pytest tests -q` -> success on the current tree (`129 passed, 1 warning in 654.20s`)
+- `ps -eo pid,etime,pcpu,pmem,args | grep '[p]ytest tests -q'` -> confirmed during this iteration that the long full-suite run stayed CPU-bound rather than hanging while the benchmark-heavy middle of the suite executed
+- `./.venv/bin/python -m tox -e flake8` -> success on the current tree during this iteration (`flake8: OK`)
+- `./.venv/bin/python -m tox -e docs` -> success on the current tree during this iteration (`docs: OK`)
+- `rm -rf dist && ./.venv/bin/python -m build && ./.venv/bin/python -m twine check dist/*` -> success on the current tree during this iteration; release artifacts still build and pass metadata validation cleanly
+- `git status --short --branch` -> the worktree remained clean after all validation commands in this iteration, before updating this progress file (`ahead 20`)
 
 ## Current Iteration Summary
-- Chosen task: verify whether any further in-scope work remained after the CI workflow fix by rerunning the full repository-native validation stack and rechecking unfinished-work markers.
-- In-scope evidence: `README.rst`, `tox.ini`, `tests/`, and `.github/workflows/commit.yml` define the completion bar for this library as passing tests, lint, and docs for the documented wallet, transaction, and provider flows.
+- Chosen task: re-run a full repository discovery and clean-tree completion audit on the current branch, then continue coding only if the live source or validations exposed another in-scope defect.
+- In-scope evidence: this repository is still a packaged Python HD wallet library with repo-native `pytest`, `tox -e flake8`, `tox -e docs`, and package-build workflows, so the highest-value remaining task was to verify the current tree against those exact commands and recheck unfinished-work markers in tracked source.
 - Changes made:
-  - reran `.venv/bin/python -m pytest tests -q` on the current tree and confirmed the full suite still passes
-  - reran `.venv/bin/python -m tox -e flake8` and `.venv/bin/python -m tox -e docs` on the current tree and confirmed both pass
-  - rechecked unfinished-work markers and found no new production-path blockers justified by repository evidence
-- Remaining work: no additional high-value, in-scope work is justified by the repository evidence in the available environment.
+- re-read the repository metadata, requirements, CI workflows, unfinished-work markers, and the live source files behind the remaining `pass`/fallback hits
+- re-ran the highest-signal validations on the clean current tree: full `pytest`, `tox -e flake8`, `tox -e docs`, and package build plus `twine check`
+- confirmed the long-running test suite was still CPU-bound rather than hung during its slow benchmark-heavy section
+- left repository source files unchanged because this iteration did not surface another broken core flow, missing supported feature, validation failure, or newly justified in-scope task
+- updated only `.codex/progress.md` to preserve the current audit state
+- Remaining work: no new in-scope implementation blocker is known after this iteration's live discovery pass and full repo-native validation run.
 
 ## Unresolved Blockers
 - The repo still documents `python`-style commands, while this host only exposes `python3`; local validation therefore uses `.venv/bin/python`.
 - GitHub CLI is unavailable in this workspace, so live Actions run inspection and log retrieval could not be performed from the runner side.
+- This branch tracks `.venv/` from earlier baseline work, so recreating tox envs or local installs may dirty environment files unrelated to the repository source.
+- The full local `tox` interpreter matrix cannot be rerun end to end in this container without additional Python runtimes (`3.10`, `3.12`, `3.13`, `3.14`), but that is an environment limitation rather than a source blocker.
+- No remaining in-scope implementation blocker is known after this iteration's clean-tree completion audit.
 
 ## Out Of Scope / Conservative Boundaries
 - No new product features should be added beyond the existing wallet/transaction/network scope documented in README, tests, and current modules.
 - Support for new coins/chains remains out of scope without direct repository evidence requiring it.
+- Local `.venv/` churn from validation is treated as workspace-only environment noise, not intended repository source work.
+- Further wallet-construction performance work is deferred because a meaningful fix would require persisting lazily generated change-address state or redesigning how monitored internal addresses are tracked, which is a larger product change than the current repository evidence requires.

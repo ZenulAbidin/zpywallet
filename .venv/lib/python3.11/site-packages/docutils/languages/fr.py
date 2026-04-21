@@ -1,4 +1,4 @@
-# $Id: fr.py 9030 2022-03-05 23:28:32Z milde $
+# $Id: fr.py 9452 2023-09-27 00:11:54Z milde $
 # Author: Stefane Fermigier <sf@fermigier.com>
 # Copyright: This module has been placed in the public domain.
 
@@ -20,12 +20,12 @@ labels = {
       'address': 'Adresse',
       'contact': 'Contact',
       'version': 'Version',
-      'revision': 'R\u00e9vision',
+      'revision': 'Révision',
       'status': 'Statut',
       'date': 'Date',
       'copyright': 'Copyright',
-      'dedication': 'D\u00e9dicace',
-      'abstract': 'R\u00e9sum\u00e9',
+      'dedication': 'Dédicace',
+      'abstract': 'Résumé',
       'attention': 'Attention!',
       'caution': 'Avertissement!',
       'danger': '!DANGER!',
@@ -45,12 +45,12 @@ bibliographic_fields = {
       'adresse': 'address',
       'contact': 'contact',
       'version': 'version',
-      'r\u00e9vision': 'revision',
+      'révision': 'revision',
       'statut': 'status',
       'date': 'date',
       'copyright': 'copyright',
-      'd\u00e9dicace': 'dedication',
-      'r\u00e9sum\u00e9': 'abstract'}
+      'dédicace': 'dedication',
+      'résumé': 'abstract'}
 """French (lowcased) to canonical name mapping for bibliographic fields."""
 
 author_separators = [';', ',']

@@ -1,3 +1,5 @@
+import string
+
 from .generated import wallet_pb2
 
 
@@ -5,6 +7,18 @@ class Transaction:
     """
     Represents a transaction with associated metadata.
     """
+
+    @staticmethod
+    def normalize_evm_txid(txid):
+        if not isinstance(txid, str):
+            return txid
+
+        normalized = txid[2:] if txid.startswith("0x") else txid
+        if len(normalized) != 64:
+            return txid
+        if not all(character in string.hexdigits for character in normalized):
+            return txid
+        return f"0x{normalized.lower()}"
 
     def __init__(self, transaction: wallet_pb2.Transaction, network):
         """
@@ -15,7 +29,11 @@ class Transaction:
             network: The network associated with the transaction.
         """
         self._network = network
-        self._txid = transaction.txid
+        self._txid = (
+            self.normalize_evm_txid(transaction.txid)
+            if network.SUPPORTS_EVM
+            else transaction.txid
+        )
         self._timestamp = transaction.timestamp
         self._confirmed = transaction.confirmed
         self._height = transaction.height
@@ -36,7 +54,7 @@ class Transaction:
             self._evm_metadata["from"] = transaction.ethlike_transaction.txfrom
             self._evm_metadata["to"] = transaction.ethlike_transaction.txto
             self._evm_metadata["amount"] = transaction.ethlike_transaction.amount
-            self._evm_metadata["gasUsed"] = transaction.ethlike_transaction.gas
+            self._evm_metadata["gas"] = transaction.ethlike_transaction.gas
             self._evm_metadata["data"] = transaction.ethlike_transaction.data
         else:
             self._sat_metadata["feeRate"] = transaction.btclike_transaction.fee
@@ -143,7 +161,7 @@ class Transaction:
         """
         if not self._network.SUPPORTS_EVM:
             raise ValueError("Blockchain does not support the 'evm_gas' property")
-        return self._evm_metadata["gasUsed"]  # always in WEI
+        return self._evm_metadata["gas"]
 
     def evm_data(self):
         """
@@ -172,9 +190,12 @@ class Transaction:
             raise ValueError("Blockchain does not support the 'sat_inputs' property")
         inputs = []
         for i in self._sat_metadata["inputs"]:
-            if not include_witness and "witness" in i.keys():
-                del i["witness"]
-            inputs.append(i)
+            input_metadata = {}
+            for key, value in i.items():
+                input_metadata[key] = list(value) if key == "witness" else value
+            if not include_witness:
+                input_metadata.pop("witness", None)
+            inputs.append(input_metadata)
         return inputs
 
     def sat_outputs(self, only_unspent=False):
@@ -189,5 +210,5 @@ class Transaction:
         outputs = []
         for o in self._sat_metadata["outputs"]:
             if not only_unspent or not o["spent"]:
-                outputs.append(o)
+                outputs.append(dict(o))
         return outputs

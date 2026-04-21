@@ -1,4 +1,4 @@
-# $Id: __init__.py 9045 2022-03-13 18:04:05Z milde $
+# $Id: __init__.py 9258 2022-11-21 14:51:43Z milde $
 # Author: David Goodger <goodger@python.org>
 # Copyright: This module has been placed in the public domain.
 
@@ -73,7 +73,7 @@ __docformat__ = 'reStructuredText'
 import docutils.parsers
 import docutils.statemachine
 from docutils.parsers.rst import roles, states
-from docutils import frontend, nodes, Component
+from docutils import frontend, nodes
 from docutils.transforms import universal
 
 
@@ -159,8 +159,7 @@ class Parser(docutils.parsers.Parser):
         self.inliner = inliner
 
     def get_transforms(self):
-        return Component.get_transforms(self) + [
-            universal.SmartQuotes]
+        return super().get_transforms() + [universal.SmartQuotes]
 
     def parse(self, inputstring, document):
         """Parse `inputstring` and populate `document`, a document tree."""
@@ -384,7 +383,7 @@ class Directive:
         if 'name' in self.options:
             name = nodes.fully_normalize_name(self.options.pop('name'))
             if 'name' in node:
-                del(node['name'])
+                del node['name']
             node['names'].append(name)
             self.state.document.note_explicit_target(node, node)
 

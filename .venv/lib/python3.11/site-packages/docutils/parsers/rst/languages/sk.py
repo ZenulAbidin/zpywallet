@@ -1,4 +1,4 @@
-# $Id: sk.py 9030 2022-03-05 23:28:32Z milde $
+# $Id: sk.py 9452 2023-09-27 00:11:54Z milde $
 # Author: Miroslav Vasko <zemiak@zoznam.sk>
 # Copyright: This module has been placed in the public domain.
 
@@ -52,7 +52,7 @@ directives = {
       'raw (translation required)': 'raw',
       'nahradi\x9d': 'replace',
       'unicode': 'unicode',
-      'd\u00E1tum': 'date',
+      'dátum': 'date',
       'class (translation required)': 'class',
       'role (translation required)': 'role',
       'default-role (translation required)': 'default-role',

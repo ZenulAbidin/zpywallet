@@ -9,8 +9,8 @@
 #
 # .. _2-Clause BSD license: https://opensource.org/licenses/BSD-2-Clause
 #
-# Revision: $Revision: 9043 $
-# Date: $Date: 2022-03-11 13:09:16 +0100 (Fr, 11. Mär 2022) $
+# Revision: $Revision: 9302 $
+# Date: $Date: 2022-12-02 18:14:05 +0100 (Fr, 02. Dez 2022) $
 """
 A parser for CommonMark Markdown text using `recommonmark`__.
 
@@ -24,23 +24,34 @@ __ https://pypi.org/project/recommonmark/
    * The API is not settled and may change with any minor Docutils version.
 """
 
-from docutils import nodes, Component
+from docutils import Component
+from docutils import nodes
 
 try:
+    # If possible, import Sphinx's 'addnodes'
+    from sphinx import addnodes
+except ImportError:
+    # stub to prevent errors if Sphinx isn't installed
+    import sys
+    import types
+
+    class pending_xref(nodes.Inline, nodes.Element): ... # NoQA
+
+    sys.modules['sphinx'] = sphinx = types.ModuleType('sphinx')
+    sphinx.addnodes = addnodes = types.SimpleNamespace()
+    addnodes.pending_xref = pending_xref
+try:
+    import recommonmark
     from recommonmark.parser import CommonMarkParser
 except ImportError as err:
-    raise ImportError(f'{err}.\n'
-                      'Parsing "recommonmark" Markdown flavour requires the '
-                      'package https://pypi.org/project/recommonmark which '
-                      'in turn depends on https://pypi.org/project/sphinx.')
-
-try:
-    from sphinx import addnodes
-    # already cached in `sys.modules` if recommonmark >= 0.5.0
-except ImportError:
-    # stub to prevent errors with recommonmark < 0.5.0
-    class addnodes:
-        pending_xref = nodes.pending
+    raise ImportError(
+        'Parsing "recommonmark" Markdown flavour requires the\n'
+        '  package https://pypi.org/project/recommonmark.'
+    ) from err
+else:
+    if recommonmark.__version__ < '0.6.0':
+        raise ImportError('The installed version of "recommonmark" is too old.'
+                          ' Update with "pip install -U recommonmark".')
 
 
 # auxiliary function for `document.findall()`

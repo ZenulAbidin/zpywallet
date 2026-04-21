@@ -72,9 +72,50 @@ class Web3Client:
                 pass
         return value
 
+    def _get_transaction_receipt(self, tx_hash):
+        get_receipt = getattr(self.web3.eth, "get_transaction_receipt", None)
+        if get_receipt is None:
+            get_receipt = self.web3.eth.getTransactionReceipt
+        return get_receipt(tx_hash)
+
+    @staticmethod
+    def _normalize_address(value):
+        if not value:
+            return None
+        try:
+            return to_checksum_address(value)
+        except Exception:
+            return None
+
+    def _transaction_references_tracked_address(self, element):
+        tx_from = self._normalize_address(element.get("from"))
+        tx_to = self._normalize_address(element.get("to"))
+        return tx_from in self.address_set or tx_to in self.address_set
+
+    def _initial_sync_start_height(self, max_height):
+        if self.history_start_block is not None:
+            return max(int(self.history_start_block), 0)
+
+        if self.history_lookback_blocks is not None:
+            lookback_blocks = int(self.history_lookback_blocks)
+            if lookback_blocks <= 0:
+                raise NetworkException(
+                    "history_lookback_blocks must be a positive integer"
+                )
+            return max(max_height - lookback_blocks + 1, 0)
+
+        if self.allow_unbounded_history_sync:
+            return 0
+
+        raise NetworkException(
+            "EVM history sync requires history_start_block or "
+            "history_lookback_blocks; unbounded sync is disabled by default"
+        )
+
     def _clean_tx(self, element, block):
         new_element = wallet_pb2.Transaction()
-        new_element.txid = self._normalize_web3_hash(element["hash"])
+        tx_hash = element["hash"]
+        new_element.txid = self._normalize_web3_hash(tx_hash)
         block_number = self._normalize_web3_value(element.get("blockNumber"))
         if block_number is not None:
             new_element.confirmed = True
@@ -97,16 +138,24 @@ class Web3Client:
             (element.get("input") or "0x")[2:]
         )
 
-        gas = int(self._normalize_web3_value(element["gas"], 0))
-        new_element.ethlike_transaction.gas = gas
-        if "maxFeePerGas" in element.keys():
-            new_element.total_fee = (
-                int(self._normalize_web3_value(element["maxFeePerGas"], 0)) * gas
-            )
-        else:
-            new_element.total_fee = (
-                int(self._normalize_web3_value(element["gasPrice"], 0)) * gas
-            )
+        gas_limit = int(self._normalize_web3_value(element.get("gas"), 0))
+        gas_used = 0
+        gas_price = None
+        if new_element.confirmed:
+            receipt = self._get_transaction_receipt(tx_hash)
+            gas_used = int(self._normalize_web3_value(receipt.get("gasUsed"), 0))
+            gas_price = self._normalize_web3_value(receipt.get("effectiveGasPrice"))
+
+        if gas_price is None:
+            if "gasPrice" in element.keys():
+                gas_price = self._normalize_web3_value(element["gasPrice"], 0)
+            else:
+                gas_price = self._normalize_web3_value(element.get("maxFeePerGas"), 0)
+        gas_price = int(gas_price or 0)
+
+        billed_gas = gas_used if gas_used else gas_limit
+        new_element.ethlike_transaction.gas = gas_used
+        new_element.total_fee = gas_price * billed_gas
 
         new_element.fee_metric = wallet_pb2.WEI
         return new_element
@@ -132,8 +181,15 @@ class Web3Client:
         add_web3_cache_middleware(self.web3.middleware_onion)
 
         self.db_connection_parameters = kwargs.get("db_connection_parameters")
+        self.history_start_block = kwargs.get("history_start_block")
+        self.history_lookback_blocks = kwargs.get("history_lookback_blocks")
+        self.allow_unbounded_history_sync = kwargs.get(
+            "allow_unbounded_history_sync", False
+        )
+        self.include_pending_history = kwargs.get("include_pending_history", False)
         self.transactions = []
         self.addresses = [to_checksum_address(a) for a in addresses]
+        self.address_set = set(self.addresses)
         if transactions is not None and isinstance(transactions, list):
             self.transactions = transactions
         else:
@@ -213,12 +269,13 @@ class Web3Client:
 
         try:
             self.height = sql_transaction_storage.get_block_height()
-
-            # Web3.py stores unconfirmed ETH transactions in "pending".
             max_height = self.get_block_height()
-            for block_number in list(range(self.height + 1, max_height + 1)) + [
-                "pending"
-            ]:
+            if self.height == 0:
+                start_height = self._initial_sync_start_height(max_height)
+            else:
+                start_height = min(self.height + 1, max_height + 1)
+
+            for block_number in range(start_height, max_height + 1):
                 get_block = getattr(self.web3.eth, "get_block", None)
                 if get_block is None:
                     get_block = self.web3.eth.getBlock
@@ -237,8 +294,37 @@ class Web3Client:
                             get_transaction = self.web3.eth.getTransaction
                         transaction = get_transaction(tx)
 
+                    if not self._transaction_references_tracked_address(transaction):
+                        continue
+
                     parsed_transaction = self._clean_tx(transaction, block)
                     sql_transaction_storage.store_transaction(parsed_transaction)
+
+            if self.include_pending_history:
+                sql_transaction_storage.delete_dropped_txids()
+                get_block = getattr(self.web3.eth, "get_block", None)
+                if get_block is None:
+                    get_block = self.web3.eth.getBlock
+                pending_block = get_block("pending", full_transactions=True)
+                if pending_block and "transactions" in pending_block:
+                    for tx in pending_block["transactions"]:
+                        if isinstance(tx, dict):
+                            transaction = tx
+                        else:
+                            get_transaction = getattr(
+                                self.web3.eth, "get_transaction", None
+                            )
+                            if get_transaction is None:
+                                get_transaction = self.web3.eth.getTransaction
+                            transaction = get_transaction(tx)
+
+                        if not self._transaction_references_tracked_address(
+                            transaction
+                        ):
+                            continue
+
+                        parsed_transaction = self._clean_tx(transaction, pending_block)
+                        sql_transaction_storage.store_transaction(parsed_transaction)
         except web3.exceptions.Web3Exception as e:
             raise NetworkException(
                 f"Failed to invoke get web3 transaction history: {e}"

@@ -1,4 +1,5 @@
 from functools import reduce
+from decimal import Decimal, InvalidOperation
 
 import json
 import multiprocessing
@@ -55,6 +56,20 @@ class RPCClient(AddressProvider):
     """
 
     # Not static because we need to make calls to fetch input transactions.
+    @staticmethod
+    def _btc_to_satoshis(value):
+        try:
+            satoshis = Decimal(str(value)) * Decimal("100000000")
+        except (InvalidOperation, TypeError, ValueError) as e:
+            raise NetworkException(f"Invalid bitcoin amount: {value}") from e
+
+        if satoshis != satoshis.to_integral_value():
+            raise NetworkException(
+                f"RPC amount cannot be represented exactly in satoshis: {value}"
+            )
+
+        return int(satoshis)
+
     def _clean_tx(self, element, block_height, sql_transaction_storage):
         new_element = wallet_pb2.Transaction()
         new_element.txid = element["txid"]
@@ -71,7 +86,7 @@ class RPCClient(AddressProvider):
 
         for vout in element["vout"]:
             txoutput = new_element.btclike_transaction.outputs.add()
-            txoutput.amount = int(vout["value"] * 1e8)
+            txoutput.amount = self._btc_to_satoshis(vout["value"])
             txoutput.index = vout["n"]
             if "address" in vout["scriptPubKey"].keys():
                 txoutput.address = vout["scriptPubKey"]["address"]
@@ -138,7 +153,7 @@ class RPCClient(AddressProvider):
         if self.chain is None:
             raise ValueError(f"Undefined chain '{chain}'")
 
-        port_map = [[8332, 18332], [9332, 19332], [22555, 445555], [9998, 19998]]
+        port_map = [[8332, 18332], [9332, 19332], [22555, 44555], [9998, 19998]]
 
         self.rpc_port = kwargs.get("port") or port_map[self.coin][self.chain]
         auth = ""

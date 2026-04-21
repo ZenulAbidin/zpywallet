@@ -33,7 +33,9 @@ def broadcast_transaction(transaction, network, **kwargs):
         else:
             return asyncio.run(broadcast_transaction_dogetest(transaction, **kwargs))
     elif network.COIN == "ETH":
-        return asyncio.run(broadcast_transaction_eth(transaction, **kwargs))
+        return asyncio.run(
+            broadcast_transaction_eth(transaction, network=network, **kwargs)
+        )
     elif network.COIN == "BCY":
         return asyncio.run(broadcast_transaction_bcy(transaction, **kwargs))
     else:

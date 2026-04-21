@@ -1,4 +1,4 @@
-# $Id: __init__.py 9037 2022-03-05 23:31:10Z milde $
+# $Id: __init__.py 9368 2023-04-28 21:26:36Z milde $
 # Author: David Goodger <goodger@python.org>
 # Copyright: This module has been placed in the public domain.
 
@@ -31,32 +31,35 @@ class Writer(Component):
     config_section = 'writers'
 
     def get_transforms(self):
-        return Component.get_transforms(self) + [
-                   universal.Messages,
-                   universal.FilterMessages,
-                   universal.StripClassesAndElements]
+        return super().get_transforms() + [universal.Messages,
+                                           universal.FilterMessages,
+                                           universal.StripClassesAndElements]
 
     document = None
-    """The document to write (Docutils doctree); set by `write`."""
+    """The document to write (Docutils doctree); set by `write()`."""
 
     output = None
-    """Final translated form of `document` (Unicode string for text, binary
-    string for other forms); set by `translate`."""
+    """Final translated form of `document`
+
+    (`str` for text, `bytes` for binary formats); set by `translate()`.
+    """
 
     language = None
-    """Language module for the document; set by `write`."""
+    """Language module for the document; set by `write()`."""
 
     destination = None
     """`docutils.io` Output object; where to write the document.
-    Set by `write`."""
+
+    Set by `write()`.
+    """
 
     def __init__(self):
 
-        # Used by HTML and LaTeX writer for output fragments:
         self.parts = {}
         """Mapping of document part names to fragments of `self.output`.
-        Values are Unicode strings; encoding is up to the client.  The 'whole'
-        key should contain the entire document output.
+
+        See `Writer.assemble_parts()` below and
+        <https://docutils.sourceforge.io/docs/api/publisher.html>.
         """
 
     def write(self, document, destination):
@@ -92,9 +95,14 @@ class Writer(Component):
         raise NotImplementedError('subclass must override this method')
 
     def assemble_parts(self):
-        """Assemble the `self.parts` dictionary.  Extend in subclasses."""
+        """Assemble the `self.parts` dictionary.  Extend in subclasses.
+
+        See <https://docutils.sourceforge.io/docs/api/publisher.html>.
+        """
         self.parts['whole'] = self.output
         self.parts['encoding'] = self.document.settings.output_encoding
+        self.parts['errors'] = (
+            self.document.settings.output_encoding_error_handler)
         self.parts['version'] = docutils.__version__
 
 

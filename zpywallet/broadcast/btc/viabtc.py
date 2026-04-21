@@ -1,6 +1,7 @@
 import requests
 
 from ...errors import NetworkException
+from .._provider_success import bitcoin_like_broadcast_success_txid
 
 
 async def broadcast_transaction_btc_viabtc(raw_transaction_hex):
@@ -24,3 +25,5 @@ async def broadcast_transaction_btc_viabtc(raw_transaction_hex):
         raise NetworkException(
             "Failed to broadcast transaction using ViaBTC API: {}".format(response.text)
         )
+
+    return bitcoin_like_broadcast_success_txid(raw_transaction_hex)

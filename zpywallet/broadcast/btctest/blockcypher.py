@@ -1,6 +1,7 @@
 import requests
 
 from ...errors import NetworkException
+from .._provider_success import bitcoin_like_broadcast_success_txid
 
 
 async def broadcast_transaction_btctest_blockcypher(raw_transaction_hex):
@@ -26,3 +27,5 @@ async def broadcast_transaction_btctest_blockcypher(raw_transaction_hex):
                 response.text
             )
         )
+
+    return bitcoin_like_broadcast_success_txid(raw_transaction_hex)

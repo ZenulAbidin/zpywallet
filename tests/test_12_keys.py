@@ -1,8 +1,9 @@
 import unittest
-from hashlib import sha256
-from zpywallet.network import BitcoinSegwitMainNet
+from zpywallet.destination import Destination
+from zpywallet.network import BitcoinMainNet, BitcoinSegwitMainNet
+from zpywallet.utils.bech32 import bech32_encode
 from zpywallet.utils.keys import PrivateKey, PublicKey, Point
-from zpywallet.errors import IncompatibleNetworkException
+from zpywallet.errors import IncompatibleNetworkException, PublicKeyHashException
 
 
 class TestKey(unittest.TestCase):
@@ -97,3 +98,80 @@ class TestKey(unittest.TestCase):
         self.assertTrue(pp.rfc2440_verify(signature))
         r, s, z = p.rsz_sign(message)
         self.assertTrue(pp.rsz_verify(message, r, s, z, pp.base58_address()))
+
+    def test_004_address_script_uses_p2sh_template_for_script_addresses(self):
+        script = PublicKey.address_script(
+            "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy", BitcoinMainNet
+        )
+        self.assertEqual(
+            script,
+            bytes.fromhex("a914b472a266d0bd89c13706a4132ccfb16f7c3b9fcb87"),
+        )
+
+    def test_005_from_address_round_trips_hash_only_addresses(self):
+        legacy = PublicKey.from_address(
+            "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH", BitcoinSegwitMainNet
+        )
+        segwit = PublicKey.from_address(
+            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", BitcoinSegwitMainNet
+        )
+
+        expected_hash = bytes.fromhex("751e76e8199196d454941c45d1b3a323f1433bd6")
+
+        self.assertTrue(legacy.hashonly)
+        self.assertTrue(segwit.hashonly)
+        self.assertEqual(legacy.hash160(), expected_hash)
+        self.assertEqual(segwit.hash160(), expected_hash)
+        self.assertEqual(legacy.address(), "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH")
+        self.assertEqual(segwit.address(), "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")
+        with self.assertRaises(PublicKeyHashException):
+            legacy.bech32_address()
+        with self.assertRaises(PublicKeyHashException):
+            segwit.base58_address()
+
+    def test_006_from_address_preserves_script_type_on_mixed_format_networks(self):
+        legacy = PublicKey.from_address(
+            "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH", BitcoinSegwitMainNet
+        )
+        script_hash = PublicKey.from_address(
+            "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy", BitcoinSegwitMainNet
+        )
+        segwit = PublicKey.from_address(
+            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", BitcoinSegwitMainNet
+        )
+
+        self.assertEqual(
+            legacy.script(),
+            bytes.fromhex("76a914751e76e8199196d454941c45d1b3a323f1433bd688ac"),
+        )
+        self.assertEqual(
+            script_hash.script(),
+            bytes.fromhex("a914b472a266d0bd89c13706a4132ccfb16f7c3b9fcb87"),
+        )
+        self.assertEqual(
+            segwit.script(),
+            bytes.fromhex("0014751e76e8199196d454941c45d1b3a323f1433bd6"),
+        )
+        self.assertEqual(script_hash.address(), "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy")
+        self.assertEqual(script_hash.base58_address(), "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy")
+        with self.assertRaises(PublicKeyHashException):
+            script_hash.bech32_address()
+
+    def test_007_taproot_hash_only_addresses_keep_their_witness_version(self):
+        witness_program = bytes(range(32))
+        address = bech32_encode("bc", 1, witness_program)
+        expected_script = b"\x51\x20" + witness_program
+
+        public_key = PublicKey.from_address(address, BitcoinSegwitMainNet)
+        destination = Destination(
+            address, 1, BitcoinSegwitMainNet, in_standard_units=False
+        )
+
+        self.assertTrue(public_key.hashonly)
+        self.assertEqual(public_key.address(), address)
+        self.assertEqual(public_key.bech32_address(), address)
+        self.assertEqual(public_key.script(), expected_script)
+        self.assertEqual(
+            PublicKey.address_script(address, BitcoinSegwitMainNet), expected_script
+        )
+        self.assertEqual(destination.script_pubkey(), expected_script)
